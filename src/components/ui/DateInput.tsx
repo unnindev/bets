@@ -6,7 +6,7 @@ interface DateInputProps {
   label?: string;
   error?: string;
   value?: string;
-  onChange?: (e: { target: { name: string; value: string } }) => void;
+  onChange?: (e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement | HTMLTextAreaElement>) => void;
   name?: string;
   required?: boolean;
 }
@@ -55,7 +55,15 @@ export const DateInput = forwardRef<HTMLInputElement, DateInputProps>(
       if (formatted.length === 10) {
         const isoValue = brToIso(formatted);
         if (onChange) {
-          onChange({ target: { name, value: isoValue } });
+          const syntheticEvent = {
+            ...e,
+            target: {
+              ...e.target,
+              name,
+              value: isoValue,
+            },
+          } as React.ChangeEvent<HTMLInputElement>;
+          onChange(syntheticEvent);
         }
       }
     };
