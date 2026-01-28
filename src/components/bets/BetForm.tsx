@@ -4,9 +4,10 @@ import { useState, useEffect } from 'react';
 import { Input } from '@/components/ui/Input';
 import { Select } from '@/components/ui/Select';
 import { Button } from '@/components/ui/Button';
-import { DateInput } from '@/components/ui/DateInput';
+import { Autocomplete } from '@/components/ui/Autocomplete';
 import { BET_TYPES, BET_RESULTS } from '@/lib/constants';
-import type { Bet, Wallet, BetType, BetResult } from '@/types';
+import { createClient } from '@/lib/supabase/client';
+import type { Bet, Wallet, BetType, BetResult, Team, Championship } from '@/types';
 
 interface BetFormProps {
   wallets: Wallet[];
@@ -17,6 +18,10 @@ interface BetFormProps {
 
 export function BetForm({ wallets, bet, onSubmit, onCancel }: BetFormProps) {
   const [isLoading, setIsLoading] = useState(false);
+  const [teams, setTeams] = useState<Team[]>([]);
+  const [championships, setChampionships] = useState<Championship[]>([]);
+  const supabase = createClient();
+
   const [formData, setFormData] = useState({
     wallet_id: bet?.wallet_id || wallets[0]?.id || '',
     team_a: bet?.team_a || '',
@@ -34,6 +39,19 @@ export function BetForm({ wallets, bet, onSubmit, onCancel }: BetFormProps) {
     is_risky: bet?.is_risky || false,
     notes: bet?.notes || '',
   });
+
+  // Carrega times e campeonatos
+  useEffect(() => {
+    const loadData = async () => {
+      const [teamsRes, champsRes] = await Promise.all([
+        supabase.from('teams').select('*').order('name'),
+        supabase.from('championships').select('*').order('name'),
+      ]);
+      if (teamsRes.data) setTeams(teamsRes.data);
+      if (champsRes.data) setChampionships(champsRes.data);
+    };
+    loadData();
+  }, [supabase]);
 
   // Calcula retorno automaticamente quando muda amount, odds ou result
   useEffect(() => {
@@ -91,6 +109,28 @@ export function BetForm({ wallets, bet, onSubmit, onCancel }: BetFormProps) {
 
   const walletOptions = wallets.map((w) => ({ value: w.id, label: w.name }));
 
+  const handleCreateTeam = async (name: string) => {
+    const { data, error } = await supabase
+      .from('teams')
+      .insert({ name })
+      .select()
+      .single();
+    if (data && !error) {
+      setTeams((prev) => [...prev, data].sort((a, b) => a.name.localeCompare(b.name)));
+    }
+  };
+
+  const handleCreateChampionship = async (name: string) => {
+    const { data, error } = await supabase
+      .from('championships')
+      .insert({ name })
+      .select()
+      .single();
+    if (data && !error) {
+      setChampionships((prev) => [...prev, data].sort((a, b) => a.name.localeCompare(b.name)));
+    }
+  };
+
   return (
     <form onSubmit={handleSubmit} className="p-6 space-y-6">
       {/* Carteira */}
@@ -105,41 +145,53 @@ export function BetForm({ wallets, bet, onSubmit, onCancel }: BetFormProps) {
 
       {/* Times */}
       <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-        <Input
+        <Autocomplete
           label="Time A (Casa)"
-          name="team_a"
+          placeholder="Buscar time..."
+          options={teams}
           value={formData.team_a}
-          onChange={handleChange}
-          placeholder="Ex: Flamengo"
+          onChange={(value) => setFormData((prev) => ({ ...prev, team_a: value }))}
+          onCreateNew={handleCreateTeam}
+          allowCreate
           required
         />
-        <Input
+        <Autocomplete
           label="Time B (Visitante)"
-          name="team_b"
+          placeholder="Buscar time..."
+          options={teams}
           value={formData.team_b}
-          onChange={handleChange}
-          placeholder="Ex: Palmeiras"
+          onChange={(value) => setFormData((prev) => ({ ...prev, team_b: value }))}
+          onCreateNew={handleCreateTeam}
+          allowCreate
           required
         />
       </div>
 
       {/* Campeonato e Data */}
       <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-        <Input
+        <Autocomplete
           label="Campeonato"
-          name="championship"
+          placeholder="Buscar campeonato..."
+          options={championships}
           value={formData.championship}
-          onChange={handleChange}
-          placeholder="Ex: Brasileirão Série A"
+          onChange={(value) => setFormData((prev) => ({ ...prev, championship: value }))}
+          onCreateNew={handleCreateChampionship}
+          allowCreate
           required
         />
-        <DateInput
-          label="Data do Jogo"
-          name="match_date"
-          value={formData.match_date}
-          onChange={handleChange}
-          required
-        />
+        <div className="w-full">
+          <label className="block text-sm font-medium text-gray-300 mb-2">
+            Data do Jogo
+          </label>
+          <input
+            type="date"
+            name="match_date"
+            value={formData.match_date}
+            onChange={handleChange}
+            required
+            className="w-full bg-gray-800 border border-gray-700 rounded-lg px-4 py-2.5 text-white focus:outline-none focus:ring-2 focus:ring-emerald-500 focus:border-transparent transition"
+          />
+        </div>
       </div>
 
       {/* Tipo de Aposta */}

@@ -41,6 +41,21 @@ export interface WalletManager {
   user?: User;
 }
 
+export interface Team {
+  id: string;
+  name: string;
+  country?: string;
+  logo_url?: string;
+  created_at: string;
+}
+
+export interface Championship {
+  id: string;
+  name: string;
+  country?: string;
+  created_at: string;
+}
+
 export interface Bet {
   id: string;
   wallet_id: string;

@@ -11,6 +11,7 @@ import {
   TrendingUp,
   Menu,
   X,
+  Settings,
 } from 'lucide-react';
 import { useState } from 'react';
 
@@ -18,6 +19,7 @@ const navItems = [
   { href: '/dashboard', label: 'Dashboard', icon: LayoutDashboard },
   { href: '/bets', label: 'Apostas', icon: Receipt },
   { href: '/wallets', label: 'Carteiras', icon: Wallet },
+  { href: '/settings', label: 'Configurações', icon: Settings },
 ];
 
 export function Sidebar() {
