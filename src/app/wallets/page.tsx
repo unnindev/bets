@@ -23,7 +23,7 @@ import {
 import type { Wallet as WalletType, WalletManager, User, Transaction } from '@/types';
 
 interface WalletWithManagers extends WalletType {
-  managers: (WalletManager & { user: User })[];
+  managers: WalletManager[];
 }
 
 export default function WalletsPage() {
@@ -67,10 +67,7 @@ export default function WalletsPage() {
       .from('wallets')
       .select(`
         *,
-        managers:wallet_managers(
-          *,
-          user:profiles(*)
-        )
+        managers:wallet_managers(*)
       `)
       .order('name');
 
@@ -211,6 +208,10 @@ export default function WalletsPage() {
     );
   };
 
+  const getProfile = (userId: string) => {
+    return profiles.find((p) => p.id === userId);
+  };
+
   return (
     <MainLayout>
       <div className="space-y-6">
@@ -297,37 +298,40 @@ export default function WalletsPage() {
                       )}
                     </div>
                     <div className="space-y-2">
-                      {wallet.managers.map((manager) => (
-                        <div
-                          key={manager.id}
-                          className="flex items-center justify-between p-2 bg-gray-800/30 rounded-lg"
-                        >
-                          <div className="flex items-center gap-2">
-                            <div className="w-8 h-8 bg-gray-700 rounded-full flex items-center justify-center text-sm font-medium text-white">
-                              {manager.user?.name?.[0]?.toUpperCase() ||
-                                manager.user?.email?.[0]?.toUpperCase()}
+                      {wallet.managers.map((manager) => {
+                        const profile = getProfile(manager.user_id);
+                        return (
+                          <div
+                            key={manager.id}
+                            className="flex items-center justify-between p-2 bg-gray-800/30 rounded-lg"
+                          >
+                            <div className="flex items-center gap-2">
+                              <div className="w-8 h-8 bg-gray-700 rounded-full flex items-center justify-center text-sm font-medium text-white">
+                                {profile?.name?.[0]?.toUpperCase() ||
+                                  profile?.email?.[0]?.toUpperCase() || '?'}
+                              </div>
+                              <div>
+                                <p className="text-sm text-white">
+                                  {profile?.name || profile?.email || 'Usuário'}
+                                </p>
+                                <p className="text-xs text-gray-500">
+                                  {manager.role === 'owner' ? 'Proprietário' : 'Gestor'}
+                                </p>
+                              </div>
                             </div>
-                            <div>
-                              <p className="text-sm text-white">
-                                {manager.user?.name || manager.user?.email}
-                              </p>
-                              <p className="text-xs text-gray-500">
-                                {manager.role === 'owner' ? 'Proprietário' : 'Gestor'}
-                              </p>
-                            </div>
+                            {isOwner(wallet) &&
+                              manager.role !== 'owner' &&
+                              manager.user_id !== currentUserId && (
+                                <button
+                                  onClick={() => handleRemoveManager(manager.id)}
+                                  className="p-1 text-gray-500 hover:text-red-400 transition"
+                                >
+                                  <UserMinus className="w-4 h-4" />
+                                </button>
+                              )}
                           </div>
-                          {isOwner(wallet) &&
-                            manager.role !== 'owner' &&
-                            manager.user_id !== currentUserId && (
-                              <button
-                                onClick={() => handleRemoveManager(manager.id)}
-                                className="p-1 text-gray-500 hover:text-red-400 transition"
-                              >
-                                <UserMinus className="w-4 h-4" />
-                              </button>
-                            )}
-                        </div>
-                      ))}
+                        );
+                      })}
                     </div>
                   </div>
 
