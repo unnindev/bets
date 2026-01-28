@@ -9,9 +9,7 @@ export default function LoginPage() {
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [isLoading, setIsLoading] = useState(false);
-  const [isSignUp, setIsSignUp] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [message, setMessage] = useState<string | null>(null);
 
   const router = useRouter();
   const supabase = createClient();
@@ -20,30 +18,16 @@ export default function LoginPage() {
     e.preventDefault();
     setIsLoading(true);
     setError(null);
-    setMessage(null);
 
     try {
-      if (isSignUp) {
-        const { error } = await supabase.auth.signUp({
-          email,
-          password,
-          options: {
-            emailRedirectTo: `${window.location.origin}/auth/callback`,
-          },
-        });
+      const { error } = await supabase.auth.signInWithPassword({
+        email,
+        password,
+      });
 
-        if (error) throw error;
-        setMessage('Verifique seu email para confirmar o cadastro!');
-      } else {
-        const { error } = await supabase.auth.signInWithPassword({
-          email,
-          password,
-        });
-
-        if (error) throw error;
-        router.push('/dashboard');
-        router.refresh();
-      }
+      if (error) throw error;
+      router.push('/dashboard');
+      router.refresh();
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Erro ao autenticar');
     } finally {
@@ -65,9 +49,7 @@ export default function LoginPage() {
 
         {/* Card de Login */}
         <div className="bg-gray-800 rounded-2xl p-8 shadow-xl border border-gray-700">
-          <h2 className="text-xl font-semibold text-white mb-6">
-            {isSignUp ? 'Criar conta' : 'Entrar'}
-          </h2>
+          <h2 className="text-xl font-semibold text-white mb-6">Entrar</h2>
 
           <form onSubmit={handleSubmit} className="space-y-4">
             <div>
@@ -111,12 +93,6 @@ export default function LoginPage() {
               </div>
             )}
 
-            {message && (
-              <div className="bg-emerald-500/10 border border-emerald-500/50 rounded-lg p-3 text-emerald-400 text-sm">
-                {message}
-              </div>
-            )}
-
             <button
               type="submit"
               disabled={isLoading}
@@ -127,28 +103,11 @@ export default function LoginPage() {
                   <Loader2 className="w-5 h-5 animate-spin" />
                   Aguarde...
                 </>
-              ) : isSignUp ? (
-                'Criar conta'
               ) : (
                 'Entrar'
               )}
             </button>
           </form>
-
-          <div className="mt-6 text-center">
-            <button
-              onClick={() => {
-                setIsSignUp(!isSignUp);
-                setError(null);
-                setMessage(null);
-              }}
-              className="text-gray-400 hover:text-emerald-400 text-sm transition"
-            >
-              {isSignUp
-                ? 'Já tem conta? Entrar'
-                : 'Não tem conta? Criar agora'}
-            </button>
-          </div>
         </div>
       </div>
     </div>
