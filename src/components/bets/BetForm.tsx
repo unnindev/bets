@@ -201,38 +201,16 @@ export function BetForm({ wallets, bet, onSubmit, onCancel }: BetFormProps) {
         />
 
         {formData.result !== 'pending' && (
-          <>
-            <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
-              <Input
-                label="Placar Time A"
-                name="score_team_a"
-                type="number"
-                min="0"
-                value={formData.score_team_a}
-                onChange={handleChange}
-                placeholder="0"
-              />
-              <Input
-                label="Placar Time B"
-                name="score_team_b"
-                type="number"
-                min="0"
-                value={formData.score_team_b}
-                onChange={handleChange}
-                placeholder="0"
-              />
-              <Input
-                label="Retorno (R$)"
-                name="return_amount"
-                type="number"
-                step="0.01"
-                min="0"
-                value={formData.return_amount}
-                onChange={handleChange}
-                placeholder="185.00"
-              />
-            </div>
-          </>
+          <Input
+            label="Retorno (R$)"
+            name="return_amount"
+            type="number"
+            step="0.01"
+            min="0"
+            value={formData.return_amount}
+            onChange={handleChange}
+            placeholder="185.00"
+          />
         )}
       </div>
 
