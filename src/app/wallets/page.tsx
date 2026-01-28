@@ -98,16 +98,23 @@ export default function WalletsPage() {
       .single();
 
     if (walletError || !wallet) {
+      console.error('Erro ao criar carteira:', walletError);
+      alert('Erro ao criar carteira: ' + walletError?.message);
       setIsSubmitting(false);
       return;
     }
 
     // Adicionar usuário atual como owner
-    await supabase.from('wallet_managers').insert({
+    const { error: managerError } = await supabase.from('wallet_managers').insert({
       wallet_id: wallet.id,
       user_id: currentUserId,
       role: 'owner',
     });
+
+    if (managerError) {
+      console.error('Erro ao adicionar gestor:', managerError);
+      alert('Erro ao adicionar gestor: ' + managerError?.message);
+    }
 
     setWalletName('');
     setInitialBalance('');
