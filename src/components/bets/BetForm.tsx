@@ -4,6 +4,7 @@ import { useState, useEffect } from 'react';
 import { Input } from '@/components/ui/Input';
 import { Select } from '@/components/ui/Select';
 import { Button } from '@/components/ui/Button';
+import { DateInput } from '@/components/ui/DateInput';
 import { BET_TYPES, BET_RESULTS } from '@/lib/constants';
 import type { Bet, Wallet, BetType, BetResult } from '@/types';
 
@@ -132,10 +133,9 @@ export function BetForm({ wallets, bet, onSubmit, onCancel }: BetFormProps) {
           placeholder="Ex: Brasileirão Série A"
           required
         />
-        <Input
+        <DateInput
           label="Data do Jogo"
           name="match_date"
-          type="date"
           value={formData.match_date}
           onChange={handleChange}
           required
