@@ -63,7 +63,7 @@ export default function WalletsPage() {
       setCurrentUserId(userData.user.id);
     }
 
-    const { data: walletsData } = await supabase
+    const { data: walletsData, error: walletsError } = await supabase
       .from('wallets')
       .select(`
         *,
@@ -73,6 +73,11 @@ export default function WalletsPage() {
         )
       `)
       .order('name');
+
+    if (walletsError) {
+      console.error('Erro ao carregar carteiras:', walletsError);
+    }
+    console.log('Carteiras carregadas:', walletsData);
 
     const { data: profilesData } = await supabase.from('profiles').select('*');
 
