@@ -462,6 +462,19 @@ export default function BetsPage() {
                           {formatCurrency(bet.return_amount)}
                         </p>
                       </div>
+                      {bet.result !== 'pending' && (
+                        <div className="text-center">
+                          <p className="text-gray-500">Lucro</p>
+                          <p className={`font-medium ${
+                            Number(bet.return_amount) - Number(bet.amount) >= 0
+                              ? 'text-emerald-400'
+                              : 'text-red-400'
+                          }`}>
+                            {Number(bet.return_amount) - Number(bet.amount) >= 0 ? '+' : ''}
+                            {formatCurrency(Number(bet.return_amount) - Number(bet.amount))}
+                          </p>
+                        </div>
+                      )}
                     </div>
 
                     {/* Status e ações */}
@@ -544,6 +557,19 @@ export default function BetsPage() {
                           {formatCurrency(bet.return_amount)}
                         </p>
                       </div>
+                      {bet.result !== 'pending' && (
+                        <div className="text-center">
+                          <p className="text-gray-500">Lucro</p>
+                          <p className={`font-medium ${
+                            Number(bet.return_amount) - Number(bet.amount) >= 0
+                              ? 'text-emerald-400'
+                              : 'text-red-400'
+                          }`}>
+                            {Number(bet.return_amount) - Number(bet.amount) >= 0 ? '+' : ''}
+                            {formatCurrency(Number(bet.return_amount) - Number(bet.amount))}
+                          </p>
+                        </div>
+                      )}
                     </div>
 
                     {/* Status e ações */}
