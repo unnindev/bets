@@ -113,11 +113,13 @@ export default function DashboardPage() {
       const winRate = totalBets > 0 ? (wins / (wins + losses)) * 100 : 0;
 
       const totalAmountBet = betsData.reduce((sum, b) => sum + Number(b.amount), 0);
-      const totalReturn = betsData
-        .filter((b) => b.result !== 'pending')
-        .reduce((sum, b) => sum + Number(b.return_amount), 0);
-      const totalProfit = totalReturn - totalAmountBet;
-      const roi = totalAmountBet > 0 ? (totalProfit / totalAmountBet) * 100 : 0;
+
+      // Para cálculo de lucro, considerar apenas apostas finalizadas
+      const finishedBets = betsData.filter((b) => b.result !== 'pending');
+      const totalAmountBetFinished = finishedBets.reduce((sum, b) => sum + Number(b.amount), 0);
+      const totalReturn = finishedBets.reduce((sum, b) => sum + Number(b.return_amount), 0);
+      const totalProfit = totalReturn - totalAmountBetFinished;
+      const roi = totalAmountBetFinished > 0 ? (totalProfit / totalAmountBetFinished) * 100 : 0;
 
       // Calcular depósitos
       let deposited = 0;
