@@ -77,7 +77,8 @@ export default function DashboardPage() {
   }, []);
 
   useEffect(() => {
-    if (wallets.length >= 0) {
+    // Só carrega stats quando as carteiras foram carregadas
+    if (wallets.length > 0) {
       loadStats();
     }
   }, [selectedWallet, wallets]);
@@ -95,6 +96,14 @@ export default function DashboardPage() {
 
   const loadStats = async () => {
     setIsLoading(true);
+
+    // Recarregar carteiras para pegar saldo atualizado
+    const { data: freshWallets } = await supabase
+      .from('wallets')
+      .select('*')
+      .order('name');
+
+    const currentWallets = freshWallets || wallets;
 
     // Carregar apostas simples
     let betsQuery = supabase.from('bets').select('*');
@@ -152,16 +161,15 @@ export default function DashboardPage() {
     const totalProfit = totalReturn - totalAmountBetFinished;
     const roi = totalAmountBetFinished > 0 ? (totalProfit / totalAmountBetFinished) * 100 : 0;
 
-    // Calcular depósitos
+    // Calcular saldo atual e depósitos usando dados frescos das carteiras
     let deposited = 0;
-    let withdrawn = 0;
     let currentBalance = 0;
 
     if (selectedWallet === 'all') {
-      currentBalance = wallets.reduce((sum, w) => sum + Number(w.balance), 0);
-      deposited = wallets.reduce((sum, w) => sum + Number(w.initial_balance), 0);
+      currentBalance = currentWallets.reduce((sum, w) => sum + Number(w.balance), 0);
+      deposited = currentWallets.reduce((sum, w) => sum + Number(w.initial_balance), 0);
     } else {
-      const wallet = wallets.find((w) => w.id === selectedWallet);
+      const wallet = currentWallets.find((w) => w.id === selectedWallet);
       if (wallet) {
         currentBalance = Number(wallet.balance);
         deposited = Number(wallet.initial_balance);
@@ -175,7 +183,7 @@ export default function DashboardPage() {
       total_pending: pending,
       win_rate: isNaN(winRate) ? 0 : winRate,
       total_deposited: deposited,
-      total_withdrawn: withdrawn,
+      total_withdrawn: 0,
       current_balance: currentBalance,
       total_profit: totalProfit,
       total_amount_bet: totalAmountBet,
