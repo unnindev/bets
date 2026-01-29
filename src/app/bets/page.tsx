@@ -26,6 +26,20 @@ import {
 } from 'lucide-react';
 import type { Bet, Wallet, BetResult } from '@/types';
 
+// Formata data local para YYYY-MM-DD sem problemas de fuso horário
+const formatLocalDate = (date: Date): string => {
+  const year = date.getFullYear();
+  const month = String(date.getMonth() + 1).padStart(2, '0');
+  const day = String(date.getDate()).padStart(2, '0');
+  return `${year}-${month}-${day}`;
+};
+
+// Parseia YYYY-MM-DD para Date local (meio-dia para evitar problemas de fuso)
+const parseLocalDate = (dateStr: string): Date => {
+  const [year, month, day] = dateStr.split('-').map(Number);
+  return new Date(year, month - 1, day, 12, 0, 0);
+};
+
 export default function BetsPage() {
   const [bets, setBets] = useState<Bet[]>([]);
   const [wallets, setWallets] = useState<Wallet[]>([]);
@@ -36,7 +50,7 @@ export default function BetsPage() {
 
   // Data selecionada (padrão: hoje)
   const [selectedDate, setSelectedDate] = useState(() => {
-    return new Date().toISOString().split('T')[0];
+    return formatLocalDate(new Date());
   });
 
   // Filtros
@@ -125,19 +139,19 @@ export default function BetsPage() {
 
   // Navegação de data
   const goToPreviousDay = () => {
-    const date = new Date(selectedDate);
+    const date = parseLocalDate(selectedDate);
     date.setDate(date.getDate() - 1);
-    setSelectedDate(date.toISOString().split('T')[0]);
+    setSelectedDate(formatLocalDate(date));
   };
 
   const goToNextDay = () => {
-    const date = new Date(selectedDate);
+    const date = parseLocalDate(selectedDate);
     date.setDate(date.getDate() + 1);
-    setSelectedDate(date.toISOString().split('T')[0]);
+    setSelectedDate(formatLocalDate(date));
   };
 
   const goToToday = () => {
-    setSelectedDate(new Date().toISOString().split('T')[0]);
+    setSelectedDate(formatLocalDate(new Date()));
   };
 
   // Filtrar apostas
