@@ -2,9 +2,8 @@
 
 import { useEffect, useState } from 'react';
 import { MainLayout } from '@/components/layout/MainLayout';
-import { Card, CardContent, CardHeader } from '@/components/ui/Card';
+import { Card, CardContent } from '@/components/ui/Card';
 import { Button } from '@/components/ui/Button';
-import { Input } from '@/components/ui/Input';
 import { Select } from '@/components/ui/Select';
 import { Modal } from '@/components/ui/Modal';
 import { BetForm } from '@/components/bets/BetForm';
@@ -18,17 +17,14 @@ import {
 } from '@/lib/constants';
 import {
   Plus,
-  Search,
-  Filter,
   Edit2,
   Trash2,
   AlertTriangle,
   ChevronLeft,
   ChevronRight,
+  Calendar,
 } from 'lucide-react';
 import type { Bet, Wallet, BetResult } from '@/types';
-
-const ITEMS_PER_PAGE = 10;
 
 export default function BetsPage() {
   const [bets, setBets] = useState<Bet[]>([]);
@@ -38,32 +34,40 @@ export default function BetsPage() {
   const [editingBet, setEditingBet] = useState<Bet | null>(null);
   const [deleteConfirm, setDeleteConfirm] = useState<string | null>(null);
 
+  // Data selecionada (padrão: hoje)
+  const [selectedDate, setSelectedDate] = useState(() => {
+    return new Date().toISOString().split('T')[0];
+  });
+
   // Filtros
-  const [searchTerm, setSearchTerm] = useState('');
   const [filterWallet, setFilterWallet] = useState('all');
   const [filterResult, setFilterResult] = useState('all');
-  const [filterChampionship, setFilterChampionship] = useState('all');
-
-  // Paginação
-  const [currentPage, setCurrentPage] = useState(1);
 
   const supabase = createClient();
 
   useEffect(() => {
-    loadData();
+    loadWallets();
   }, []);
 
-  const loadData = async () => {
+  useEffect(() => {
+    loadBetsForDate();
+  }, [selectedDate]);
+
+  const loadWallets = async () => {
+    const { data } = await supabase.from('wallets').select('*').order('name');
+    if (data) setWallets(data);
+  };
+
+  const loadBetsForDate = async () => {
     setIsLoading(true);
 
-    const [walletsResult, betsResult] = await Promise.all([
-      supabase.from('wallets').select('*').order('name'),
-      supabase.from('bets').select('*, wallet:wallets(name)').order('match_date', { ascending: false }),
-    ]);
+    const { data } = await supabase
+      .from('bets')
+      .select('*, wallet:wallets(name)')
+      .eq('match_date', selectedDate)
+      .order('created_at', { ascending: false });
 
-    if (walletsResult.data) setWallets(walletsResult.data);
-    if (betsResult.data) setBets(betsResult.data);
-
+    if (data) setBets(data);
     setIsLoading(false);
   };
 
@@ -72,12 +76,13 @@ export default function BetsPage() {
 
     const { error } = await supabase.from('bets').insert({
       ...data,
+      match_date: selectedDate,
       user_id: user.user?.id,
     });
 
     if (!error) {
       setIsModalOpen(false);
-      loadData();
+      loadBetsForDate();
     }
   };
 
@@ -86,13 +91,16 @@ export default function BetsPage() {
 
     const { error } = await supabase
       .from('bets')
-      .update(data)
+      .update({
+        ...data,
+        match_date: selectedDate,
+      })
       .eq('id', editingBet.id);
 
     if (!error) {
       setEditingBet(null);
       setIsModalOpen(false);
-      loadData();
+      loadBetsForDate();
     }
   };
 
@@ -101,7 +109,7 @@ export default function BetsPage() {
 
     if (!error) {
       setDeleteConfirm(null);
-      loadData();
+      loadBetsForDate();
     }
   };
 
@@ -115,36 +123,29 @@ export default function BetsPage() {
     setEditingBet(null);
   };
 
+  // Navegação de data
+  const goToPreviousDay = () => {
+    const date = new Date(selectedDate);
+    date.setDate(date.getDate() - 1);
+    setSelectedDate(date.toISOString().split('T')[0]);
+  };
+
+  const goToNextDay = () => {
+    const date = new Date(selectedDate);
+    date.setDate(date.getDate() + 1);
+    setSelectedDate(date.toISOString().split('T')[0]);
+  };
+
+  const goToToday = () => {
+    setSelectedDate(new Date().toISOString().split('T')[0]);
+  };
+
   // Filtrar apostas
   const filteredBets = bets.filter((bet) => {
-    const matchesSearch =
-      searchTerm === '' ||
-      bet.team_a.toLowerCase().includes(searchTerm.toLowerCase()) ||
-      bet.team_b.toLowerCase().includes(searchTerm.toLowerCase()) ||
-      bet.championship.toLowerCase().includes(searchTerm.toLowerCase());
-
     const matchesWallet = filterWallet === 'all' || bet.wallet_id === filterWallet;
     const matchesResult = filterResult === 'all' || bet.result === filterResult;
-    const matchesChampionship =
-      filterChampionship === 'all' || bet.championship === filterChampionship;
-
-    return matchesSearch && matchesWallet && matchesResult && matchesChampionship;
+    return matchesWallet && matchesResult;
   });
-
-  // Paginação
-  const totalPages = Math.ceil(filteredBets.length / ITEMS_PER_PAGE);
-  const paginatedBets = filteredBets.slice(
-    (currentPage - 1) * ITEMS_PER_PAGE,
-    currentPage * ITEMS_PER_PAGE
-  );
-
-  // Resetar página quando filtros mudam
-  useEffect(() => {
-    setCurrentPage(1);
-  }, [searchTerm, filterWallet, filterResult, filterChampionship]);
-
-  // Lista de campeonatos únicos
-  const championships = [...new Set(bets.map((b) => b.championship))].sort();
 
   const walletOptions = [
     { value: 'all', label: 'Todas as carteiras' },
@@ -159,193 +160,228 @@ export default function BetsPage() {
     { value: 'cashout', label: 'Cashout' },
   ];
 
-  const championshipOptions = [
-    { value: 'all', label: 'Todos os campeonatos' },
-    ...championships.map((c) => ({ value: c, label: c })),
-  ];
-
   const getBetTypeLabel = (type: string) => {
     return BET_TYPES.find((t) => t.value === type)?.label || type;
   };
 
+  // Calcular totais do dia
+  const totals = filteredBets.reduce(
+    (acc, bet) => {
+      acc.totalBets++;
+      acc.totalAmount += Number(bet.amount);
+      if (bet.result === 'win' || bet.result === 'cashout') {
+        acc.totalReturn += Number(bet.return_amount);
+        acc.wins++;
+      } else if (bet.result === 'loss') {
+        acc.losses++;
+      } else {
+        acc.pending++;
+      }
+      return acc;
+    },
+    { totalBets: 0, totalAmount: 0, totalReturn: 0, wins: 0, losses: 0, pending: 0 }
+  );
+
+  const profit = totals.totalReturn - totals.totalAmount;
+
   return (
     <MainLayout>
       <div className="space-y-6">
-        {/* Header */}
-        <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
+        {/* Seletor de Data */}
+        <Card>
+          <CardContent className="p-4">
+            <div className="flex flex-col sm:flex-row items-center justify-between gap-4">
+              <div className="flex items-center gap-2">
+                <button
+                  onClick={goToPreviousDay}
+                  className="p-2 text-gray-400 hover:text-white hover:bg-gray-800 rounded-lg transition"
+                >
+                  <ChevronLeft className="w-5 h-5" />
+                </button>
+
+                <div className="flex items-center gap-3">
+                  <Calendar className="w-5 h-5 text-emerald-500" />
+                  <input
+                    type="date"
+                    value={selectedDate}
+                    onChange={(e) => setSelectedDate(e.target.value)}
+                    className="bg-gray-800 border border-gray-700 rounded-lg px-4 py-2 text-white focus:outline-none focus:ring-2 focus:ring-emerald-500"
+                  />
+                </div>
+
+                <button
+                  onClick={goToNextDay}
+                  className="p-2 text-gray-400 hover:text-white hover:bg-gray-800 rounded-lg transition"
+                >
+                  <ChevronRight className="w-5 h-5" />
+                </button>
+
+                <Button variant="ghost" size="sm" onClick={goToToday}>
+                  Hoje
+                </Button>
+              </div>
+
+              <div className="flex items-center gap-3">
+                <Select
+                  options={walletOptions}
+                  value={filterWallet}
+                  onChange={(e) => setFilterWallet(e.target.value)}
+                />
+                <Select
+                  options={resultOptions}
+                  value={filterResult}
+                  onChange={(e) => setFilterResult(e.target.value)}
+                />
+              </div>
+            </div>
+          </CardContent>
+        </Card>
+
+        {/* Resumo do Dia */}
+        <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-3">
+          <Card>
+            <CardContent className="p-4 text-center">
+              <p className="text-gray-500 text-xs uppercase">Apostas</p>
+              <p className="text-xl font-bold text-white">{totals.totalBets}</p>
+            </CardContent>
+          </Card>
+          <Card>
+            <CardContent className="p-4 text-center">
+              <p className="text-gray-500 text-xs uppercase">Investido</p>
+              <p className="text-xl font-bold text-white">{formatCurrency(totals.totalAmount)}</p>
+            </CardContent>
+          </Card>
+          <Card>
+            <CardContent className="p-4 text-center">
+              <p className="text-gray-500 text-xs uppercase">Retorno</p>
+              <p className="text-xl font-bold text-white">{formatCurrency(totals.totalReturn)}</p>
+            </CardContent>
+          </Card>
+          <Card>
+            <CardContent className="p-4 text-center">
+              <p className="text-gray-500 text-xs uppercase">Lucro</p>
+              <p className={`text-xl font-bold ${profit >= 0 ? 'text-emerald-400' : 'text-red-400'}`}>
+                {formatCurrency(profit)}
+              </p>
+            </CardContent>
+          </Card>
+          <Card>
+            <CardContent className="p-4 text-center">
+              <p className="text-gray-500 text-xs uppercase">Ganhos</p>
+              <p className="text-xl font-bold text-emerald-400">{totals.wins}</p>
+            </CardContent>
+          </Card>
+          <Card>
+            <CardContent className="p-4 text-center">
+              <p className="text-gray-500 text-xs uppercase">Perdas</p>
+              <p className="text-xl font-bold text-red-400">{totals.losses}</p>
+            </CardContent>
+          </Card>
+        </div>
+
+        {/* Header com botão de adicionar */}
+        <div className="flex items-center justify-between">
           <div>
-            <h1 className="text-2xl font-bold text-white">Apostas</h1>
-            <p className="text-gray-400">
-              {filteredBets.length} aposta{filteredBets.length !== 1 ? 's' : ''} encontrada
-              {filteredBets.length !== 1 ? 's' : ''}
+            <h1 className="text-xl font-bold text-white">
+              Apostas de {formatDate(selectedDate)}
+            </h1>
+            <p className="text-gray-400 text-sm">
+              {filteredBets.length} aposta{filteredBets.length !== 1 ? 's' : ''}
+              {totals.pending > 0 && ` (${totals.pending} pendente${totals.pending !== 1 ? 's' : ''})`}
             </p>
           </div>
-          <Button onClick={() => setIsModalOpen(true)}>
+          <Button onClick={() => setIsModalOpen(true)} disabled={wallets.length === 0}>
             <Plus className="w-5 h-5" />
             Nova Aposta
           </Button>
         </div>
-
-        {/* Filtros */}
-        <Card>
-          <CardContent className="p-4">
-            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-4">
-              <div className="relative lg:col-span-1">
-                <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-500" />
-                <input
-                  type="text"
-                  placeholder="Buscar times..."
-                  value={searchTerm}
-                  onChange={(e) => setSearchTerm(e.target.value)}
-                  className="w-full bg-gray-800 border border-gray-700 rounded-lg pl-10 pr-4 py-2.5 text-white placeholder-gray-500 focus:outline-none focus:ring-2 focus:ring-emerald-500"
-                />
-              </div>
-              <Select
-                options={walletOptions}
-                value={filterWallet}
-                onChange={(e) => setFilterWallet(e.target.value)}
-              />
-              <Select
-                options={resultOptions}
-                value={filterResult}
-                onChange={(e) => setFilterResult(e.target.value)}
-              />
-              <Select
-                options={championshipOptions}
-                value={filterChampionship}
-                onChange={(e) => setFilterChampionship(e.target.value)}
-              />
-              <Button
-                variant="ghost"
-                onClick={() => {
-                  setSearchTerm('');
-                  setFilterWallet('all');
-                  setFilterResult('all');
-                  setFilterChampionship('all');
-                }}
-              >
-                Limpar filtros
-              </Button>
-            </div>
-          </CardContent>
-        </Card>
 
         {/* Lista de Apostas */}
         {isLoading ? (
           <div className="flex items-center justify-center h-64">
             <div className="animate-spin rounded-full h-8 w-8 border-t-2 border-b-2 border-emerald-500"></div>
           </div>
-        ) : paginatedBets.length > 0 ? (
-          <>
-            <div className="space-y-3">
-              {paginatedBets.map((bet) => (
-                <Card key={bet.id} className="hover:border-gray-700 transition">
-                  <CardContent className="p-4">
-                    <div className="flex flex-col lg:flex-row lg:items-center gap-4">
-                      {/* Info principal */}
-                      <div className="flex-1 min-w-0">
-                        <div className="flex items-center gap-2 mb-1">
-                          <span className="font-semibold text-white truncate">
-                            {bet.team_a} x {bet.team_b}
-                          </span>
-                          {bet.is_risky && (
-                            <AlertTriangle className="w-4 h-4 text-yellow-500 flex-shrink-0" />
-                          )}
-                        </div>
-                        <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-sm text-gray-400">
-                          <span>{bet.championship}</span>
-                          <span>•</span>
-                          <span>{formatDate(bet.match_date)}</span>
-                          <span>•</span>
-                          <span>{getBetTypeLabel(bet.bet_type)}</span>
-                          {bet.score_team_a !== null && bet.score_team_b !== null && (
-                            <>
-                              <span>•</span>
-                              <span className="text-white">
-                                {bet.score_team_a} x {bet.score_team_b}
-                              </span>
-                            </>
-                          )}
-                        </div>
-                      </div>
-
-                      {/* Valores */}
-                      <div className="flex items-center gap-6 text-sm">
-                        <div className="text-center">
-                          <p className="text-gray-500">Apostado</p>
-                          <p className="font-medium text-white">{formatCurrency(bet.amount)}</p>
-                        </div>
-                        <div className="text-center">
-                          <p className="text-gray-500">Odds</p>
-                          <p className="font-medium text-white">{bet.odds.toFixed(2)}</p>
-                        </div>
-                        <div className="text-center">
-                          <p className="text-gray-500">Retorno</p>
-                          <p className="font-medium text-white">
-                            {formatCurrency(bet.return_amount)}
-                          </p>
-                        </div>
-                      </div>
-
-                      {/* Status e ações */}
-                      <div className="flex items-center gap-3">
-                        <span
-                          className={`px-3 py-1 rounded-full text-xs font-medium border ${
-                            RESULT_COLORS[bet.result as BetResult]
-                          }`}
-                        >
-                          {RESULT_LABELS[bet.result as BetResult]}
+        ) : filteredBets.length > 0 ? (
+          <div className="space-y-3">
+            {filteredBets.map((bet) => (
+              <Card key={bet.id} className="hover:border-gray-700 transition">
+                <CardContent className="p-4">
+                  <div className="flex flex-col lg:flex-row lg:items-center gap-4">
+                    {/* Info principal */}
+                    <div className="flex-1 min-w-0">
+                      <div className="flex items-center gap-2 mb-1">
+                        <span className="font-semibold text-white truncate">
+                          {bet.team_a} x {bet.team_b}
                         </span>
-                        <div className="flex items-center gap-1">
-                          <button
-                            onClick={() => openEditModal(bet)}
-                            className="p-2 text-gray-400 hover:text-white hover:bg-gray-800 rounded-lg transition"
-                          >
-                            <Edit2 className="w-4 h-4" />
-                          </button>
-                          <button
-                            onClick={() => setDeleteConfirm(bet.id)}
-                            className="p-2 text-gray-400 hover:text-red-400 hover:bg-gray-800 rounded-lg transition"
-                          >
-                            <Trash2 className="w-4 h-4" />
-                          </button>
-                        </div>
+                        {bet.is_risky && (
+                          <AlertTriangle className="w-4 h-4 text-yellow-500 flex-shrink-0" />
+                        )}
+                      </div>
+                      <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-sm text-gray-400">
+                        <span>{bet.championship}</span>
+                        <span>•</span>
+                        <span>{getBetTypeLabel(bet.bet_type)}</span>
+                        {bet.bet_type === 'other' && bet.bet_type_description && (
+                          <>
+                            <span>•</span>
+                            <span className="text-gray-300">{bet.bet_type_description}</span>
+                          </>
+                        )}
                       </div>
                     </div>
-                  </CardContent>
-                </Card>
-              ))}
-            </div>
 
-            {/* Paginação */}
-            {totalPages > 1 && (
-              <div className="flex items-center justify-center gap-2">
-                <Button
-                  variant="ghost"
-                  size="sm"
-                  onClick={() => setCurrentPage((p) => Math.max(1, p - 1))}
-                  disabled={currentPage === 1}
-                >
-                  <ChevronLeft className="w-4 h-4" />
-                </Button>
-                <span className="text-gray-400 text-sm px-4">
-                  Página {currentPage} de {totalPages}
-                </span>
-                <Button
-                  variant="ghost"
-                  size="sm"
-                  onClick={() => setCurrentPage((p) => Math.min(totalPages, p + 1))}
-                  disabled={currentPage === totalPages}
-                >
-                  <ChevronRight className="w-4 h-4" />
-                </Button>
-              </div>
-            )}
-          </>
+                    {/* Valores */}
+                    <div className="flex items-center gap-6 text-sm">
+                      <div className="text-center">
+                        <p className="text-gray-500">Apostado</p>
+                        <p className="font-medium text-white">{formatCurrency(bet.amount)}</p>
+                      </div>
+                      <div className="text-center">
+                        <p className="text-gray-500">Odds</p>
+                        <p className="font-medium text-white">{bet.odds.toFixed(2)}</p>
+                      </div>
+                      <div className="text-center">
+                        <p className="text-gray-500">Retorno</p>
+                        <p className="font-medium text-white">
+                          {formatCurrency(bet.return_amount)}
+                        </p>
+                      </div>
+                    </div>
+
+                    {/* Status e ações */}
+                    <div className="flex items-center gap-3">
+                      <span
+                        className={`px-3 py-1 rounded-full text-xs font-medium border ${
+                          RESULT_COLORS[bet.result as BetResult]
+                        }`}
+                      >
+                        {RESULT_LABELS[bet.result as BetResult]}
+                      </span>
+                      <div className="flex items-center gap-1">
+                        <button
+                          onClick={() => openEditModal(bet)}
+                          className="p-2 text-gray-400 hover:text-white hover:bg-gray-800 rounded-lg transition"
+                        >
+                          <Edit2 className="w-4 h-4" />
+                        </button>
+                        <button
+                          onClick={() => setDeleteConfirm(bet.id)}
+                          className="p-2 text-gray-400 hover:text-red-400 hover:bg-gray-800 rounded-lg transition"
+                        >
+                          <Trash2 className="w-4 h-4" />
+                        </button>
+                      </div>
+                    </div>
+                  </div>
+                </CardContent>
+              </Card>
+            ))}
+          </div>
         ) : (
           <Card>
             <CardContent className="p-12 text-center">
-              <p className="text-gray-400">Nenhuma aposta encontrada.</p>
+              <Calendar className="w-12 h-12 text-gray-600 mx-auto mb-4" />
+              <p className="text-gray-400">Nenhuma aposta para {formatDate(selectedDate)}.</p>
               {wallets.length === 0 ? (
                 <p className="text-gray-500 text-sm mt-2">
                   Crie uma carteira primeiro na página de Carteiras.
@@ -353,7 +389,7 @@ export default function BetsPage() {
               ) : (
                 <Button className="mt-4" onClick={() => setIsModalOpen(true)}>
                   <Plus className="w-5 h-5" />
-                  Criar primeira aposta
+                  Criar aposta para este dia
                 </Button>
               )}
             </CardContent>
@@ -364,7 +400,7 @@ export default function BetsPage() {
         <Modal
           isOpen={isModalOpen}
           onClose={closeModal}
-          title={editingBet ? 'Editar Aposta' : 'Nova Aposta'}
+          title={editingBet ? 'Editar Aposta' : `Nova Aposta - ${formatDate(selectedDate)}`}
           size="lg"
         >
           {wallets.length > 0 ? (

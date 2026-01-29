@@ -27,7 +27,6 @@ export function BetForm({ wallets, bet, onSubmit, onCancel }: BetFormProps) {
     team_a: bet?.team_a || '',
     team_b: bet?.team_b || '',
     championship: bet?.championship || '',
-    match_date: bet?.match_date || new Date().toISOString().split('T')[0],
     bet_type: bet?.bet_type || 'team_a',
     bet_type_description: bet?.bet_type_description || '',
     amount: bet?.amount?.toString() || '',
@@ -89,7 +88,6 @@ export function BetForm({ wallets, bet, onSubmit, onCancel }: BetFormProps) {
         team_a: formData.team_a,
         team_b: formData.team_b,
         championship: formData.championship,
-        match_date: formData.match_date,
         bet_type: formData.bet_type as BetType,
         bet_type_description:
           formData.bet_type === 'other' ? formData.bet_type_description : undefined,
@@ -167,32 +165,17 @@ export function BetForm({ wallets, bet, onSubmit, onCancel }: BetFormProps) {
         />
       </div>
 
-      {/* Campeonato e Data */}
-      <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-        <Autocomplete
-          label="Campeonato"
-          placeholder="Buscar campeonato..."
-          options={championships}
-          value={formData.championship}
-          onChange={(value) => setFormData((prev) => ({ ...prev, championship: value }))}
-          onCreateNew={handleCreateChampionship}
-          allowCreate
-          required
-        />
-        <div className="w-full">
-          <label className="block text-sm font-medium text-gray-300 mb-2">
-            Data do Jogo
-          </label>
-          <input
-            type="date"
-            name="match_date"
-            value={formData.match_date}
-            onChange={handleChange}
-            required
-            className="w-full bg-gray-800 border border-gray-700 rounded-lg px-4 py-2.5 text-white focus:outline-none focus:ring-2 focus:ring-emerald-500 focus:border-transparent transition"
-          />
-        </div>
-      </div>
+      {/* Campeonato */}
+      <Autocomplete
+        label="Campeonato"
+        placeholder="Buscar campeonato..."
+        options={championships}
+        value={formData.championship}
+        onChange={(value) => setFormData((prev) => ({ ...prev, championship: value }))}
+        onCreateNew={handleCreateChampionship}
+        allowCreate
+        required
+      />
 
       {/* Tipo de Aposta */}
       <div className="space-y-4">

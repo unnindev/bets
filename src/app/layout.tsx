@@ -10,9 +10,6 @@ const inter = Inter({
 export const metadata: Metadata = {
   title: "BetTracker - Gestão de Apostas",
   description: "Sistema de gestão e acompanhamento de apostas esportivas",
-  icons: {
-    icon: "/favicon.svg",
-  },
 };
 
 export default function RootLayout({
