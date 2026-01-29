@@ -13,6 +13,8 @@ import {
   PiggyBank,
   Activity,
   BarChart3,
+  Percent,
+  Landmark,
 } from 'lucide-react';
 import {
   LineChart,
@@ -139,19 +141,26 @@ function DashboardContent() {
     const totalProfit = totalReturn - totalAmountBetFinished;
     const roi = totalAmountBetFinished > 0 ? (totalProfit / totalAmountBetFinished) * 100 : 0;
 
+    // ROI sobre capital inicial (quanto o dinheiro inicial cresceu)
+    const initialBalance = selectedWallet ? Number(selectedWallet.initial_balance) : 0;
+    const currentBalance = selectedWallet ? Number(selectedWallet.balance) : 0;
+    const capitalProfit = currentBalance - initialBalance;
+    const roiCapital = initialBalance > 0 ? (capitalProfit / initialBalance) * 100 : 0;
+
     setStats({
       total_bets: totalBets,
       total_wins: wins,
       total_losses: losses,
       total_pending: pending,
       win_rate: isNaN(winRate) ? 0 : winRate,
-      total_deposited: selectedWallet ? Number(selectedWallet.initial_balance) : 0,
+      total_deposited: initialBalance,
       total_withdrawn: 0,
-      current_balance: selectedWallet ? Number(selectedWallet.balance) : 0,
+      current_balance: currentBalance,
       total_profit: totalProfit,
       total_amount_bet: totalAmountBet,
       total_return: totalReturn,
       roi: isNaN(roi) ? 0 : roi,
+      roi_capital: isNaN(roiCapital) ? 0 : roiCapital,
     });
 
     setIsLoading(false);
@@ -271,7 +280,7 @@ function DashboardContent() {
       ) : stats ? (
         <>
           {/* Stats Grid */}
-          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
             <StatCard
               title="Saldo Atual"
               value={formatCurrency(stats.current_balance)}
@@ -281,16 +290,16 @@ function DashboardContent() {
             />
             <StatCard
               title="Lucro/Prejuízo"
-              value={formatCurrency(stats.total_profit)}
-              subtitle={`ROI: ${formatPercentage(stats.roi)}`}
+              value={formatCurrency(stats.current_balance - stats.total_deposited)}
+              subtitle={`Saldo - Depositado`}
               icon={
-                stats.total_profit >= 0 ? (
+                stats.current_balance >= stats.total_deposited ? (
                   <TrendingUp className="w-5 h-5 text-emerald-400" />
                 ) : (
                   <TrendingDown className="w-5 h-5 text-red-400" />
                 )
               }
-              trend={stats.total_profit >= 0 ? 'up' : 'down'}
+              trend={stats.current_balance >= stats.total_deposited ? 'up' : 'down'}
             />
             <StatCard
               title="Win Rate"
@@ -299,6 +308,56 @@ function DashboardContent() {
               icon={<Target className="w-5 h-5 text-blue-400" />}
               trend={stats.win_rate >= 50 ? 'up' : 'down'}
             />
+          </div>
+
+          {/* ROI Cards */}
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+            <Card>
+              <CardContent className="p-5">
+                <div className="flex items-start justify-between">
+                  <div>
+                    <p className="text-sm text-gray-400 mb-1">ROI sobre Capital</p>
+                    <p className={`text-2xl font-bold ${stats.roi_capital >= 0 ? 'text-emerald-400' : 'text-red-400'}`}>
+                      {formatPercentage(stats.roi_capital)}
+                    </p>
+                    <p className="text-xs text-gray-500 mt-1">
+                      Quanto seu capital inicial cresceu
+                    </p>
+                    <p className="text-xs text-gray-600 mt-0.5">
+                      (Saldo Atual - Depositado) / Depositado
+                    </p>
+                  </div>
+                  <div className="p-3 bg-gray-800 rounded-lg">
+                    <Landmark className="w-5 h-5 text-yellow-400" />
+                  </div>
+                </div>
+              </CardContent>
+            </Card>
+            <Card>
+              <CardContent className="p-5">
+                <div className="flex items-start justify-between">
+                  <div>
+                    <p className="text-sm text-gray-400 mb-1">ROI sobre Apostas</p>
+                    <p className={`text-2xl font-bold ${stats.roi >= 0 ? 'text-emerald-400' : 'text-red-400'}`}>
+                      {formatPercentage(stats.roi)}
+                    </p>
+                    <p className="text-xs text-gray-500 mt-1">
+                      Eficiência por real apostado
+                    </p>
+                    <p className="text-xs text-gray-600 mt-0.5">
+                      Lucro das apostas / Total apostado
+                    </p>
+                  </div>
+                  <div className="p-3 bg-gray-800 rounded-lg">
+                    <Percent className="w-5 h-5 text-cyan-400" />
+                  </div>
+                </div>
+              </CardContent>
+            </Card>
+          </div>
+
+          {/* Total Apostado */}
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
             <StatCard
               title="Total Apostado"
               value={formatCurrency(stats.total_amount_bet)}

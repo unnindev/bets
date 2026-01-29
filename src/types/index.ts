@@ -113,7 +113,8 @@ export interface DashboardStats {
   total_profit: number;
   total_amount_bet: number;
   total_return: number;
-  roi: number;
+  roi: number; // ROI sobre apostas (lucro / total apostado)
+  roi_capital: number; // ROI sobre capital (lucro / capital inicial)
 }
 
 export interface TeamStats {
