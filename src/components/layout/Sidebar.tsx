@@ -14,6 +14,7 @@ import {
   Settings,
   ChevronDown,
   Check,
+  BarChart3,
 } from 'lucide-react';
 import { useState, useRef, useEffect } from 'react';
 import { useWallet } from '@/contexts/WalletContext';
@@ -22,6 +23,7 @@ import { formatCurrency } from '@/lib/constants';
 const navItems = [
   { href: '/dashboard', label: 'Dashboard', icon: LayoutDashboard },
   { href: '/bets', label: 'Apostas', icon: Receipt },
+  { href: '/analytics', label: 'Análises', icon: BarChart3 },
   { href: '/wallets', label: 'Carteiras', icon: Wallet },
   { href: '/settings', label: 'Configurações', icon: Settings },
 ];
