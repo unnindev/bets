@@ -12,8 +12,12 @@ import {
   Menu,
   X,
   Settings,
+  ChevronDown,
+  Check,
 } from 'lucide-react';
-import { useState } from 'react';
+import { useState, useRef, useEffect } from 'react';
+import { useWallet } from '@/contexts/WalletContext';
+import { formatCurrency } from '@/lib/constants';
 
 const navItems = [
   { href: '/dashboard', label: 'Dashboard', icon: LayoutDashboard },
@@ -27,11 +31,30 @@ export function Sidebar() {
   const router = useRouter();
   const supabase = createClient();
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
+  const [walletDropdownOpen, setWalletDropdownOpen] = useState(false);
+  const dropdownRef = useRef<HTMLDivElement>(null);
+  const { wallets, selectedWalletId, selectedWallet, setSelectedWalletId, isLoading } = useWallet();
+
+  // Fechar dropdown ao clicar fora
+  useEffect(() => {
+    function handleClickOutside(event: MouseEvent) {
+      if (dropdownRef.current && !dropdownRef.current.contains(event.target as Node)) {
+        setWalletDropdownOpen(false);
+      }
+    }
+    document.addEventListener('mousedown', handleClickOutside);
+    return () => document.removeEventListener('mousedown', handleClickOutside);
+  }, []);
 
   const handleLogout = async () => {
     await supabase.auth.signOut();
     router.push('/login');
     router.refresh();
+  };
+
+  const handleWalletSelect = (walletId: string) => {
+    setSelectedWalletId(walletId);
+    setWalletDropdownOpen(false);
   };
 
   return (
@@ -81,6 +104,61 @@ export function Sidebar() {
 
         {/* Mobile spacer */}
         <div className="lg:hidden h-16" />
+
+        {/* Wallet Selector */}
+        {wallets.length > 0 && (
+          <div className="px-3 py-3 border-b border-gray-800" ref={dropdownRef}>
+            <div className="relative">
+              <button
+                onClick={() => setWalletDropdownOpen(!walletDropdownOpen)}
+                className="w-full flex items-center justify-between px-3 py-2.5 bg-gray-800 hover:bg-gray-750 border border-gray-700 rounded-lg transition"
+              >
+                <div className="flex items-center gap-2 min-w-0">
+                  <Wallet className="w-4 h-4 text-emerald-400 flex-shrink-0" />
+                  <div className="text-left min-w-0">
+                    <p className="text-xs text-gray-400">Carteira</p>
+                    <p className="text-sm font-medium text-white truncate">
+                      {isLoading ? 'Carregando...' : selectedWallet?.name || 'Selecione'}
+                    </p>
+                  </div>
+                </div>
+                <div className="flex items-center gap-2 flex-shrink-0">
+                  {selectedWallet && (
+                    <span className={`text-xs font-medium ${Number(selectedWallet.balance) >= 0 ? 'text-emerald-400' : 'text-red-400'}`}>
+                      {formatCurrency(selectedWallet.balance)}
+                    </span>
+                  )}
+                  <ChevronDown className={`w-4 h-4 text-gray-400 transition-transform ${walletDropdownOpen ? 'rotate-180' : ''}`} />
+                </div>
+              </button>
+
+              {/* Dropdown */}
+              {walletDropdownOpen && (
+                <div className="absolute top-full left-0 right-0 mt-1 bg-gray-800 border border-gray-700 rounded-lg shadow-xl z-50 max-h-64 overflow-y-auto">
+                  {wallets.map((wallet) => (
+                    <button
+                      key={wallet.id}
+                      onClick={() => handleWalletSelect(wallet.id)}
+                      className={`w-full flex items-center justify-between px-3 py-2.5 hover:bg-gray-700 transition ${
+                        wallet.id === selectedWalletId ? 'bg-gray-700/50' : ''
+                      }`}
+                    >
+                      <span className="text-sm text-white truncate">{wallet.name}</span>
+                      <div className="flex items-center gap-2">
+                        <span className={`text-xs font-medium ${Number(wallet.balance) >= 0 ? 'text-emerald-400' : 'text-red-400'}`}>
+                          {formatCurrency(wallet.balance)}
+                        </span>
+                        {wallet.id === selectedWalletId && (
+                          <Check className="w-4 h-4 text-emerald-400" />
+                        )}
+                      </div>
+                    </button>
+                  ))}
+                </div>
+              )}
+            </div>
+          </div>
+        )}
 
         {/* Navigation */}
         <nav className="px-3 py-4">
