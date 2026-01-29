@@ -6,7 +6,7 @@ import { Card, CardContent, CardHeader } from '@/components/ui/Card';
 import { Button } from '@/components/ui/Button';
 import { Input } from '@/components/ui/Input';
 import { createClient } from '@/lib/supabase/client';
-import { Plus, Trash2, Trophy, Users } from 'lucide-react';
+import { Check, Pencil, Plus, Trash2, Trophy, Users, X } from 'lucide-react';
 import type { Team, Championship } from '@/types';
 
 export default function SettingsPage() {
@@ -20,6 +20,14 @@ export default function SettingsPage() {
 
   const [isAddingTeam, setIsAddingTeam] = useState(false);
   const [isAddingChampionship, setIsAddingChampionship] = useState(false);
+
+  // Edit states
+  const [editingTeamId, setEditingTeamId] = useState<string | null>(null);
+  const [editingTeamName, setEditingTeamName] = useState('');
+  const [editingChampionshipId, setEditingChampionshipId] = useState<string | null>(null);
+  const [editingChampionshipName, setEditingChampionshipName] = useState('');
+  const [isSavingTeam, setIsSavingTeam] = useState(false);
+  const [isSavingChampionship, setIsSavingChampionship] = useState(false);
 
   const supabase = createClient();
 
@@ -99,6 +107,116 @@ export default function SettingsPage() {
     }
   };
 
+  const startEditingTeam = (team: Team) => {
+    setEditingTeamId(team.id);
+    setEditingTeamName(team.name);
+  };
+
+  const cancelEditingTeam = () => {
+    setEditingTeamId(null);
+    setEditingTeamName('');
+  };
+
+  const handleEditTeam = async (oldName: string) => {
+    if (!editingTeamName.trim() || !editingTeamId) return;
+    if (editingTeamName.trim() === oldName) {
+      cancelEditingTeam();
+      return;
+    }
+
+    setIsSavingTeam(true);
+
+    const newName = editingTeamName.trim();
+
+    // Atualizar o time na tabela teams
+    const { error: teamError } = await supabase
+      .from('teams')
+      .update({ name: newName })
+      .eq('id', editingTeamId);
+
+    if (teamError) {
+      alert('Erro ao atualizar time: ' + teamError.message);
+      setIsSavingTeam(false);
+      return;
+    }
+
+    // Atualizar em todas as apostas simples (team_a e team_b)
+    await supabase
+      .from('bets')
+      .update({ team_a: newName })
+      .eq('team_a', oldName);
+
+    await supabase
+      .from('bets')
+      .update({ team_b: newName })
+      .eq('team_b', oldName);
+
+    // Atualizar em todas as apostas combinadas (combined_bet_items)
+    await supabase
+      .from('combined_bet_items')
+      .update({ team_a: newName })
+      .eq('team_a', oldName);
+
+    await supabase
+      .from('combined_bet_items')
+      .update({ team_b: newName })
+      .eq('team_b', oldName);
+
+    setIsSavingTeam(false);
+    cancelEditingTeam();
+    loadData();
+  };
+
+  const startEditingChampionship = (championship: Championship) => {
+    setEditingChampionshipId(championship.id);
+    setEditingChampionshipName(championship.name);
+  };
+
+  const cancelEditingChampionship = () => {
+    setEditingChampionshipId(null);
+    setEditingChampionshipName('');
+  };
+
+  const handleEditChampionship = async (oldName: string) => {
+    if (!editingChampionshipName.trim() || !editingChampionshipId) return;
+    if (editingChampionshipName.trim() === oldName) {
+      cancelEditingChampionship();
+      return;
+    }
+
+    setIsSavingChampionship(true);
+
+    const newName = editingChampionshipName.trim();
+
+    // Atualizar o campeonato na tabela championships
+    const { error: champError } = await supabase
+      .from('championships')
+      .update({ name: newName })
+      .eq('id', editingChampionshipId);
+
+    if (champError) {
+      alert('Erro ao atualizar campeonato: ' + champError.message);
+      setIsSavingChampionship(false);
+      return;
+    }
+
+    // Atualizar em todas as apostas simples
+    await supabase
+      .from('bets')
+      .update({ championship: newName })
+      .eq('championship', oldName);
+
+    // Atualizar em todas as apostas combinadas (combined_bet_items)
+    await supabase
+      .from('combined_bet_items')
+      .update({ championship: newName })
+      .eq('championship', oldName);
+
+    setIsSavingChampionship(false);
+    cancelEditingChampionship();
+    loadData();
+  };
+
   return (
     <MainLayout>
       <div className="space-y-6">
@@ -150,13 +268,56 @@ export default function SettingsPage() {
                         key={team.id}
                         className="flex items-center justify-between p-2 bg-gray-800/50 rounded-lg group"
                       >
-                        <span className="text-white">{team.name}</span>
-                        <button
-                          onClick={() => handleDeleteTeam(team.id)}
-                          className="p-1 text-gray-500 hover:text-red-400 opacity-0 group-hover:opacity-100 transition"
-                        >
-                          <Trash2 className="w-4 h-4" />
-                        </button>
+                        {editingTeamId === team.id ? (
+                          <div className="flex items-center gap-2 flex-1">
+                            <Input
+                              value={editingTeamName}
+                              onChange={(e) => setEditingTeamName(e.target.value)}
+                              className="flex-1 h-8 text-sm"
+                              autoFocus
+                              onKeyDown={(e) => {
+                                if (e.key === 'Enter') {
+                                  e.preventDefault();
+                                  handleEditTeam(team.name);
+                                } else if (e.key === 'Escape') {
+                                  cancelEditingTeam();
+                                }
+                              }}
+                            />
+                            <button
+                              onClick={() => handleEditTeam(team.name)}
+                              disabled={isSavingTeam}
+                              className="p-1 text-emerald-400 hover:text-emerald-300 disabled:opacity-50"
+                            >
+                              <Check className="w-4 h-4" />
+                            </button>
+                            <button
+                              onClick={cancelEditingTeam}
+                              disabled={isSavingTeam}
+                              className="p-1 text-gray-400 hover:text-gray-300 disabled:opacity-50"
+                            >
+                              <X className="w-4 h-4" />
+                            </button>
+                          </div>
+                        ) : (
+                          <>
+                            <span className="text-white">{team.name}</span>
+                            <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition">
+                              <button
+                                onClick={() => startEditingTeam(team)}
+                                className="p-1 text-gray-500 hover:text-blue-400"
+                              >
+                                <Pencil className="w-4 h-4" />
+                              </button>
+                              <button
+                                onClick={() => handleDeleteTeam(team.id)}
+                                className="p-1 text-gray-500 hover:text-red-400"
+                              >
+                                <Trash2 className="w-4 h-4" />
+                              </button>
+                            </div>
+                          </>
+                        )}
                       </div>
                     ))
                   )}
@@ -200,13 +361,56 @@ export default function SettingsPage() {
                         key={championship.id}
                         className="flex items-center justify-between p-2 bg-gray-800/50 rounded-lg group"
                       >
-                        <span className="text-white">{championship.name}</span>
-                        <button
-                          onClick={() => handleDeleteChampionship(championship.id)}
-                          className="p-1 text-gray-500 hover:text-red-400 opacity-0 group-hover:opacity-100 transition"
-                        >
-                          <Trash2 className="w-4 h-4" />
-                        </button>
+                        {editingChampionshipId === championship.id ? (
+                          <div className="flex items-center gap-2 flex-1">
+                            <Input
+                              value={editingChampionshipName}
+                              onChange={(e) => setEditingChampionshipName(e.target.value)}
+                              className="flex-1 h-8 text-sm"
+                              autoFocus
+                              onKeyDown={(e) => {
+                                if (e.key === 'Enter') {
+                                  e.preventDefault();
+                                  handleEditChampionship(championship.name);
+                                } else if (e.key === 'Escape') {
+                                  cancelEditingChampionship();
+                                }
+                              }}
+                            />
+                            <button
+                              onClick={() => handleEditChampionship(championship.name)}
+                              disabled={isSavingChampionship}
+                              className="p-1 text-emerald-400 hover:text-emerald-300 disabled:opacity-50"
+                            >
+                              <Check className="w-4 h-4" />
+                            </button>
+                            <button
+                              onClick={cancelEditingChampionship}
+                              disabled={isSavingChampionship}
+                              className="p-1 text-gray-400 hover:text-gray-300 disabled:opacity-50"
+                            >
+                              <X className="w-4 h-4" />
+                            </button>
+                          </div>
+                        ) : (
+                          <>
+                            <span className="text-white">{championship.name}</span>
+                            <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition">
+                              <button
+                                onClick={() => startEditingChampionship(championship)}
+                                className="p-1 text-gray-500 hover:text-blue-400"
+                              >
+                                <Pencil className="w-4 h-4" />
+                              </button>
+                              <button
+                                onClick={() => handleDeleteChampionship(championship.id)}
+                                className="p-1 text-gray-500 hover:text-red-400"
+                              >
+                                <Trash2 className="w-4 h-4" />
+                              </button>
+                            </div>
+                          </>
+                        )}
                       </div>
                     ))
                   )}
