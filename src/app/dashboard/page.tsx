@@ -356,16 +356,6 @@ function DashboardContent() {
             </Card>
           </div>
 
-          {/* Total Apostado */}
-          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
-            <StatCard
-              title="Total Apostado"
-              value={formatCurrency(stats.total_amount_bet)}
-              subtitle={`${stats.total_bets} apostas (${stats.total_pending} pendentes)`}
-              icon={<PiggyBank className="w-5 h-5 text-purple-400" />}
-            />
-          </div>
-
           {/* Charts */}
           <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
             {/* Balance Evolution Chart */}
@@ -448,7 +438,18 @@ function DashboardContent() {
           </div>
 
           {/* Summary Cards */}
-          <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+          <div className="grid grid-cols-2 sm:grid-cols-4 gap-4">
+            <Card>
+              <CardContent className="p-5 text-center">
+                <p className="text-gray-400 text-sm mb-1">Total Apostado</p>
+                <p className="text-xl font-bold text-white">
+                  {formatCurrency(stats.total_amount_bet)}
+                </p>
+                <p className="text-xs text-gray-500 mt-1">
+                  {stats.total_bets} apostas ({stats.total_pending} pendentes)
+                </p>
+              </CardContent>
+            </Card>
             <Card>
               <CardContent className="p-5 text-center">
                 <p className="text-gray-400 text-sm mb-1">Total Retornado</p>
