@@ -133,3 +133,32 @@ export interface ChampionshipStats {
   win_rate: number;
   profit: number;
 }
+
+// Apostas Combinadas
+export interface CombinedBetItem {
+  id?: string;
+  combined_bet_id?: string;
+  team_a: string;
+  team_b: string;
+  championship: string;
+  bet_type: BetType;
+  bet_type_description?: string;
+  created_at?: string;
+}
+
+export interface CombinedBet {
+  id: string;
+  wallet_id: string;
+  user_id: string;
+  amount: number;
+  odds: number;
+  result: BetResult;
+  return_amount: number;
+  is_risky: boolean;
+  notes?: string;
+  match_date: string;
+  created_at: string;
+  updated_at: string;
+  items?: CombinedBetItem[];
+  wallet?: Wallet;
+}

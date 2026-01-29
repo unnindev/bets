@@ -27,7 +27,7 @@ import {
   BarChart,
   Bar,
 } from 'recharts';
-import type { Wallet, Bet, DashboardStats } from '@/types';
+import type { Wallet, Bet, CombinedBet, DashboardStats } from '@/types';
 
 interface StatCardProps {
   title: string;
@@ -67,6 +67,7 @@ export default function DashboardPage() {
   const [selectedWallet, setSelectedWallet] = useState<string>('all');
   const [stats, setStats] = useState<DashboardStats | null>(null);
   const [bets, setBets] = useState<Bet[]>([]);
+  const [combinedBets, setCombinedBets] = useState<CombinedBet[]>([]);
   const [isLoading, setIsLoading] = useState(true);
 
   const supabase = createClient();
@@ -95,79 +96,110 @@ export default function DashboardPage() {
   const loadStats = async () => {
     setIsLoading(true);
 
-    let query = supabase.from('bets').select('*');
-
+    // Carregar apostas simples
+    let betsQuery = supabase.from('bets').select('*');
     if (selectedWallet !== 'all') {
-      query = query.eq('wallet_id', selectedWallet);
+      betsQuery = betsQuery.eq('wallet_id', selectedWallet);
     }
+    const { data: betsData } = await betsQuery.order('match_date', { ascending: true });
 
-    const { data: betsData } = await query.order('match_date', { ascending: true });
+    // Carregar apostas combinadas
+    let combinedQuery = supabase.from('combined_bets').select('*');
+    if (selectedWallet !== 'all') {
+      combinedQuery = combinedQuery.eq('wallet_id', selectedWallet);
+    }
+    const { data: combinedData } = await combinedQuery.order('match_date', { ascending: true });
 
-    if (betsData) {
-      setBets(betsData);
+    if (betsData) setBets(betsData);
+    if (combinedData) setCombinedBets(combinedData);
 
-      const totalBets = betsData.length;
-      const wins = betsData.filter((b) => b.result === 'win').length;
-      const losses = betsData.filter((b) => b.result === 'loss').length;
-      const pending = betsData.filter((b) => b.result === 'pending').length;
-      const winRate = totalBets > 0 ? (wins / (wins + losses)) * 100 : 0;
+    // Calcular estatísticas incluindo combinadas
+    const allBetsData = betsData || [];
+    const allCombinedData = combinedData || [];
 
-      const totalAmountBet = betsData.reduce((sum, b) => sum + Number(b.amount), 0);
+    // Contar totais
+    const totalBets = allBetsData.length + allCombinedData.length;
 
-      // Para cálculo de lucro, considerar apenas apostas finalizadas
-      const finishedBets = betsData.filter((b) => b.result !== 'pending');
-      const totalAmountBetFinished = finishedBets.reduce((sum, b) => sum + Number(b.amount), 0);
-      const totalReturn = finishedBets.reduce((sum, b) => sum + Number(b.return_amount), 0);
-      const totalProfit = totalReturn - totalAmountBetFinished;
-      const roi = totalAmountBetFinished > 0 ? (totalProfit / totalAmountBetFinished) * 100 : 0;
+    // Wins e losses de apostas simples
+    let wins = allBetsData.filter((b) => b.result === 'win').length;
+    let losses = allBetsData.filter((b) => b.result === 'loss').length;
+    let pending = allBetsData.filter((b) => b.result === 'pending').length;
 
-      // Calcular depósitos
-      let deposited = 0;
-      let withdrawn = 0;
-      let currentBalance = 0;
+    // Adicionar wins e losses de combinadas
+    wins += allCombinedData.filter((b) => b.result === 'win').length;
+    losses += allCombinedData.filter((b) => b.result === 'loss').length;
+    pending += allCombinedData.filter((b) => b.result === 'pending').length;
 
-      if (selectedWallet === 'all') {
-        currentBalance = wallets.reduce((sum, w) => sum + Number(w.balance), 0);
-        deposited = wallets.reduce((sum, w) => sum + Number(w.initial_balance), 0);
-      } else {
-        const wallet = wallets.find((w) => w.id === selectedWallet);
-        if (wallet) {
-          currentBalance = Number(wallet.balance);
-          deposited = Number(wallet.initial_balance);
-        }
+    const winRate = (wins + losses) > 0 ? (wins / (wins + losses)) * 100 : 0;
+
+    // Total apostado (simples + combinadas)
+    const totalAmountBetSimple = allBetsData.reduce((sum, b) => sum + Number(b.amount), 0);
+    const totalAmountBetCombined = allCombinedData.reduce((sum, b) => sum + Number(b.amount), 0);
+    const totalAmountBet = totalAmountBetSimple + totalAmountBetCombined;
+
+    // Para cálculo de lucro, considerar apenas apostas finalizadas
+    const finishedBetsSimple = allBetsData.filter((b) => b.result !== 'pending');
+    const finishedBetsCombined = allCombinedData.filter((b) => b.result !== 'pending');
+
+    const totalAmountBetFinished =
+      finishedBetsSimple.reduce((sum, b) => sum + Number(b.amount), 0) +
+      finishedBetsCombined.reduce((sum, b) => sum + Number(b.amount), 0);
+
+    const totalReturn =
+      finishedBetsSimple.reduce((sum, b) => sum + Number(b.return_amount), 0) +
+      finishedBetsCombined.reduce((sum, b) => sum + Number(b.return_amount), 0);
+
+    const totalProfit = totalReturn - totalAmountBetFinished;
+    const roi = totalAmountBetFinished > 0 ? (totalProfit / totalAmountBetFinished) * 100 : 0;
+
+    // Calcular depósitos
+    let deposited = 0;
+    let withdrawn = 0;
+    let currentBalance = 0;
+
+    if (selectedWallet === 'all') {
+      currentBalance = wallets.reduce((sum, w) => sum + Number(w.balance), 0);
+      deposited = wallets.reduce((sum, w) => sum + Number(w.initial_balance), 0);
+    } else {
+      const wallet = wallets.find((w) => w.id === selectedWallet);
+      if (wallet) {
+        currentBalance = Number(wallet.balance);
+        deposited = Number(wallet.initial_balance);
       }
-
-      setStats({
-        total_bets: totalBets,
-        total_wins: wins,
-        total_losses: losses,
-        total_pending: pending,
-        win_rate: isNaN(winRate) ? 0 : winRate,
-        total_deposited: deposited,
-        total_withdrawn: withdrawn,
-        current_balance: currentBalance,
-        total_profit: totalProfit,
-        total_amount_bet: totalAmountBet,
-        total_return: totalReturn,
-        roi: isNaN(roi) ? 0 : roi,
-      });
     }
+
+    setStats({
+      total_bets: totalBets,
+      total_wins: wins,
+      total_losses: losses,
+      total_pending: pending,
+      win_rate: isNaN(winRate) ? 0 : winRate,
+      total_deposited: deposited,
+      total_withdrawn: withdrawn,
+      current_balance: currentBalance,
+      total_profit: totalProfit,
+      total_amount_bet: totalAmountBet,
+      total_return: totalReturn,
+      roi: isNaN(roi) ? 0 : roi,
+    });
 
     setIsLoading(false);
   };
 
   // Dados para o gráfico de evolução do saldo
   const getBalanceChartData = () => {
-    if (!bets.length) return [];
+    if (!bets.length && !combinedBets.length) return [];
 
-    const sortedBets = [...bets].sort(
-      (a, b) => new Date(a.match_date).getTime() - new Date(b.match_date).getTime()
-    );
+    // Combinar todas as apostas e ordenar por data
+    const allBets = [
+      ...bets.map((b) => ({ ...b, type: 'simple' as const })),
+      ...combinedBets.map((b) => ({ ...b, type: 'combined' as const })),
+    ].sort((a, b) => new Date(a.match_date).getTime() - new Date(b.match_date).getTime());
 
     let runningBalance = stats?.total_deposited || 0;
     const data: { date: string; balance: number }[] = [];
 
-    sortedBets.forEach((bet) => {
+    allBets.forEach((bet) => {
       if (bet.result === 'pending') return;
 
       runningBalance -= Number(bet.amount);
@@ -195,7 +227,28 @@ export default function DashboardPage() {
   const getMonthlyChartData = () => {
     const monthlyData: Record<string, { wins: number; losses: number }> = {};
 
+    // Processar apostas simples
     bets.forEach((bet) => {
+      if (bet.result === 'pending') return;
+
+      const month = new Date(bet.match_date).toLocaleDateString('pt-BR', {
+        month: 'short',
+        year: '2-digit',
+      });
+
+      if (!monthlyData[month]) {
+        monthlyData[month] = { wins: 0, losses: 0 };
+      }
+
+      if (bet.result === 'win' || bet.result === 'cashout') {
+        monthlyData[month].wins += 1;
+      } else {
+        monthlyData[month].losses += 1;
+      }
+    });
+
+    // Processar apostas combinadas
+    combinedBets.forEach((bet) => {
       if (bet.result === 'pending') return;
 
       const month = new Date(bet.match_date).toLocaleDateString('pt-BR', {
@@ -391,8 +444,12 @@ export default function DashboardPage() {
                 <CardContent className="p-5 text-center">
                   <p className="text-gray-400 text-sm mb-1">Odd Média</p>
                   <p className="text-xl font-bold text-white">
-                    {bets.length > 0
-                      ? (bets.reduce((sum, b) => sum + Number(b.odds), 0) / bets.length).toFixed(2)
+                    {(bets.length + combinedBets.length) > 0
+                      ? (
+                          (bets.reduce((sum, b) => sum + Number(b.odds), 0) +
+                            combinedBets.reduce((sum, b) => sum + Number(b.odds), 0)) /
+                          (bets.length + combinedBets.length)
+                        ).toFixed(2)
                       : '0.00'}
                   </p>
                 </CardContent>
