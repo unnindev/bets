@@ -22,6 +22,8 @@ import {
   Filter,
   ChevronDown,
   ChevronUp,
+  Landmark,
+  Percent,
 } from 'lucide-react';
 import {
   BarChart,
@@ -116,7 +118,7 @@ const CHART_COLORS = [
 ];
 
 function AnalyticsContent() {
-  const { selectedWalletId, isLoading: walletLoading } = useWallet();
+  const { selectedWalletId, selectedWallet, isLoading: walletLoading } = useWallet();
   const [bets, setBets] = useState<Bet[]>([]);
   const [combinedBets, setCombinedBets] = useState<CombinedBet[]>([]);
   const [isLoading, setIsLoading] = useState(true);
@@ -283,8 +285,14 @@ function AnalyticsContent() {
     const winRate = wins + losses > 0 ? (wins / (wins + losses)) * 100 : 0;
     const roi = totalBet > 0 ? (profit / totalBet) * 100 : 0;
 
-    return { totalBets, wins, losses, pending, totalBet, totalReturn, profit, winRate, roi };
-  }, [filteredData]);
+    // ROI sobre capital
+    const initialBalance = selectedWallet ? Number(selectedWallet.initial_balance) : 0;
+    const currentBalance = selectedWallet ? Number(selectedWallet.balance) : 0;
+    const capitalProfit = currentBalance - initialBalance;
+    const roiCapital = initialBalance > 0 ? (capitalProfit / initialBalance) * 100 : 0;
+
+    return { totalBets, wins, losses, pending, totalBet, totalReturn, profit, winRate, roi, roiCapital, initialBalance, currentBalance };
+  }, [filteredData, selectedWallet]);
 
   // Estatísticas por time
   const teamStats = useMemo(() => {
@@ -703,7 +711,7 @@ function AnalyticsContent() {
       </Card>
 
       {/* Resumo Geral */}
-      <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-4">
+      <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-4">
         <Card>
           <CardContent className="p-4 text-center">
             <p className="text-xs text-gray-400">Total Apostas</p>
@@ -734,16 +742,54 @@ function AnalyticsContent() {
           <CardContent className="p-4 text-center">
             <p className="text-xs text-gray-400">Lucro/Prejuízo</p>
             <p className={`text-xl font-bold ${generalStats.profit >= 0 ? 'text-emerald-400' : 'text-red-400'}`}>
-              {formatCurrency(generalStats.profit)}
+              {formatCurrency(generalStats.currentBalance - generalStats.initialBalance)}
             </p>
           </CardContent>
         </Card>
+      </div>
+
+      {/* ROI Cards */}
+      <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
         <Card>
-          <CardContent className="p-4 text-center">
-            <p className="text-xs text-gray-400">ROI</p>
-            <p className={`text-xl font-bold ${generalStats.roi >= 0 ? 'text-emerald-400' : 'text-red-400'}`}>
-              {formatPercentage(generalStats.roi)}
-            </p>
+          <CardContent className="p-5">
+            <div className="flex items-start justify-between">
+              <div>
+                <p className="text-sm text-gray-400 mb-1">ROI sobre Capital</p>
+                <p className={`text-2xl font-bold ${generalStats.roiCapital >= 0 ? 'text-emerald-400' : 'text-red-400'}`}>
+                  {formatPercentage(generalStats.roiCapital)}
+                </p>
+                <p className="text-xs text-gray-500 mt-1">
+                  Quanto seu capital inicial cresceu
+                </p>
+                <p className="text-xs text-gray-600 mt-0.5">
+                  (Saldo Atual - Depositado) / Depositado
+                </p>
+              </div>
+              <div className="p-3 bg-gray-800 rounded-lg">
+                <Landmark className="w-5 h-5 text-yellow-400" />
+              </div>
+            </div>
+          </CardContent>
+        </Card>
+        <Card>
+          <CardContent className="p-5">
+            <div className="flex items-start justify-between">
+              <div>
+                <p className="text-sm text-gray-400 mb-1">ROI sobre Apostas</p>
+                <p className={`text-2xl font-bold ${generalStats.roi >= 0 ? 'text-emerald-400' : 'text-red-400'}`}>
+                  {formatPercentage(generalStats.roi)}
+                </p>
+                <p className="text-xs text-gray-500 mt-1">
+                  Eficiência por real apostado
+                </p>
+                <p className="text-xs text-gray-600 mt-0.5">
+                  Lucro das apostas / Total apostado
+                </p>
+              </div>
+              <div className="p-3 bg-gray-800 rounded-lg">
+                <Percent className="w-5 h-5 text-cyan-400" />
+              </div>
+            </div>
           </CardContent>
         </Card>
       </div>
