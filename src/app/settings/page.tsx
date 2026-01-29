@@ -16,9 +16,7 @@ export default function SettingsPage() {
 
   // Form states
   const [newTeamName, setNewTeamName] = useState('');
-  const [newTeamCountry, setNewTeamCountry] = useState('');
   const [newChampionshipName, setNewChampionshipName] = useState('');
-  const [newChampionshipCountry, setNewChampionshipCountry] = useState('');
 
   const [isAddingTeam, setIsAddingTeam] = useState(false);
   const [isAddingChampionship, setIsAddingChampionship] = useState(false);
@@ -51,12 +49,10 @@ export default function SettingsPage() {
 
     const { error } = await supabase.from('teams').insert({
       name: newTeamName.trim(),
-      country: newTeamCountry.trim() || null,
     });
 
     if (!error) {
       setNewTeamName('');
-      setNewTeamCountry('');
       loadData();
     } else {
       alert('Erro ao adicionar time: ' + error.message);
@@ -73,12 +69,10 @@ export default function SettingsPage() {
 
     const { error } = await supabase.from('championships').insert({
       name: newChampionshipName.trim(),
-      country: newChampionshipCountry.trim() || null,
     });
 
     if (!error) {
       setNewChampionshipName('');
-      setNewChampionshipCountry('');
       loadData();
     } else {
       alert('Erro ao adicionar campeonato: ' + error.message);
@@ -131,24 +125,16 @@ export default function SettingsPage() {
               </CardHeader>
               <CardContent className="space-y-4">
                 {/* Formulário de adicionar */}
-                <form onSubmit={handleAddTeam} className="space-y-3">
-                  <div className="flex gap-2">
-                    <Input
-                      placeholder="Nome do time"
-                      value={newTeamName}
-                      onChange={(e) => setNewTeamName(e.target.value)}
-                      required
-                    />
-                    <Input
-                      placeholder="País (opcional)"
-                      value={newTeamCountry}
-                      onChange={(e) => setNewTeamCountry(e.target.value)}
-                      className="w-32"
-                    />
-                  </div>
-                  <Button type="submit" size="sm" isLoading={isAddingTeam} className="w-full">
+                <form onSubmit={handleAddTeam} className="flex gap-2">
+                  <Input
+                    placeholder="Nome do time"
+                    value={newTeamName}
+                    onChange={(e) => setNewTeamName(e.target.value)}
+                    required
+                  />
+                  <Button type="submit" size="sm" isLoading={isAddingTeam}>
                     <Plus className="w-4 h-4" />
-                    Adicionar Time
+                    Adicionar
                   </Button>
                 </form>
 
@@ -164,14 +150,7 @@ export default function SettingsPage() {
                         key={team.id}
                         className="flex items-center justify-between p-2 bg-gray-800/50 rounded-lg group"
                       >
-                        <div>
-                          <span className="text-white">{team.name}</span>
-                          {team.country && (
-                            <span className="text-gray-500 text-sm ml-2">
-                              ({team.country})
-                            </span>
-                          )}
-                        </div>
+                        <span className="text-white">{team.name}</span>
                         <button
                           onClick={() => handleDeleteTeam(team.id)}
                           className="p-1 text-gray-500 hover:text-red-400 opacity-0 group-hover:opacity-100 transition"
@@ -196,24 +175,16 @@ export default function SettingsPage() {
               </CardHeader>
               <CardContent className="space-y-4">
                 {/* Formulário de adicionar */}
-                <form onSubmit={handleAddChampionship} className="space-y-3">
-                  <div className="flex gap-2">
-                    <Input
-                      placeholder="Nome do campeonato"
-                      value={newChampionshipName}
-                      onChange={(e) => setNewChampionshipName(e.target.value)}
-                      required
-                    />
-                    <Input
-                      placeholder="País (opcional)"
-                      value={newChampionshipCountry}
-                      onChange={(e) => setNewChampionshipCountry(e.target.value)}
-                      className="w-32"
-                    />
-                  </div>
-                  <Button type="submit" size="sm" isLoading={isAddingChampionship} className="w-full">
+                <form onSubmit={handleAddChampionship} className="flex gap-2">
+                  <Input
+                    placeholder="Nome do campeonato"
+                    value={newChampionshipName}
+                    onChange={(e) => setNewChampionshipName(e.target.value)}
+                    required
+                  />
+                  <Button type="submit" size="sm" isLoading={isAddingChampionship}>
                     <Plus className="w-4 h-4" />
-                    Adicionar Campeonato
+                    Adicionar
                   </Button>
                 </form>
 
@@ -229,14 +200,7 @@ export default function SettingsPage() {
                         key={championship.id}
                         className="flex items-center justify-between p-2 bg-gray-800/50 rounded-lg group"
                       >
-                        <div>
-                          <span className="text-white">{championship.name}</span>
-                          {championship.country && (
-                            <span className="text-gray-500 text-sm ml-2">
-                              ({championship.country})
-                            </span>
-                          )}
-                        </div>
+                        <span className="text-white">{championship.name}</span>
                         <button
                           onClick={() => handleDeleteChampionship(championship.id)}
                           className="p-1 text-gray-500 hover:text-red-400 opacity-0 group-hover:opacity-100 transition"
