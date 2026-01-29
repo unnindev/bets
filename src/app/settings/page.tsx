@@ -6,7 +6,7 @@ import { Card, CardContent, CardHeader } from '@/components/ui/Card';
 import { Button } from '@/components/ui/Button';
 import { Input } from '@/components/ui/Input';
 import { createClient } from '@/lib/supabase/client';
-import { Check, Pencil, Plus, Trash2, Trophy, Users, X } from 'lucide-react';
+import { Check, Key, Loader2, Pencil, Plus, Trash2, Trophy, Users, X } from 'lucide-react';
 import type { Team, Championship } from '@/types';
 
 export default function SettingsPage() {
@@ -28,6 +28,14 @@ export default function SettingsPage() {
   const [editingChampionshipName, setEditingChampionshipName] = useState('');
   const [isSavingTeam, setIsSavingTeam] = useState(false);
   const [isSavingChampionship, setIsSavingChampionship] = useState(false);
+
+  // Password change states
+  const [currentPassword, setCurrentPassword] = useState('');
+  const [newPassword, setNewPassword] = useState('');
+  const [confirmPassword, setConfirmPassword] = useState('');
+  const [isChangingPassword, setIsChangingPassword] = useState(false);
+  const [passwordError, setPasswordError] = useState<string | null>(null);
+  const [passwordSuccess, setPasswordSuccess] = useState(false);
 
   const supabase = createClient();
 
@@ -217,14 +225,156 @@ export default function SettingsPage() {
     loadData();
   };
 
+  const handleChangePassword = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setPasswordError(null);
+    setPasswordSuccess(false);
+
+    // Validações
+    if (newPassword.length < 6) {
+      setPasswordError('A nova senha deve ter pelo menos 6 caracteres');
+      return;
+    }
+
+    if (newPassword !== confirmPassword) {
+      setPasswordError('As senhas não coincidem');
+      return;
+    }
+
+    setIsChangingPassword(true);
+
+    try {
+      // Primeiro, verificar a senha atual fazendo login novamente
+      const { data: { user } } = await supabase.auth.getUser();
+
+      if (!user?.email) {
+        setPasswordError('Erro ao obter dados do usuário');
+        setIsChangingPassword(false);
+        return;
+      }
+
+      // Tentar fazer login com a senha atual para verificar
+      const { error: signInError } = await supabase.auth.signInWithPassword({
+        email: user.email,
+        password: currentPassword,
+      });
+
+      if (signInError) {
+        setPasswordError('Senha atual incorreta');
+        setIsChangingPassword(false);
+        return;
+      }
+
+      // Atualizar a senha
+      const { error: updateError } = await supabase.auth.updateUser({
+        password: newPassword,
+      });
+
+      if (updateError) {
+        setPasswordError('Erro ao atualizar senha: ' + updateError.message);
+        setIsChangingPassword(false);
+        return;
+      }
+
+      // Sucesso
+      setPasswordSuccess(true);
+      setCurrentPassword('');
+      setNewPassword('');
+      setConfirmPassword('');
+
+      // Esconder mensagem de sucesso após 3 segundos
+      setTimeout(() => setPasswordSuccess(false), 3000);
+    } catch {
+      setPasswordError('Erro inesperado ao alterar senha');
+    }
+
+    setIsChangingPassword(false);
+  };
+
   return (
     <MainLayout>
       <div className="space-y-6">
         {/* Header */}
         <div>
           <h1 className="text-2xl font-bold text-white">Configurações</h1>
-          <p className="text-gray-400">Gerencie times e campeonatos</p>
+          <p className="text-gray-400">Gerencie sua conta, times e campeonatos</p>
         </div>
+
+        {/* Alterar Senha */}
+        <Card>
+          <CardHeader>
+            <div className="flex items-center gap-2">
+              <Key className="w-5 h-5 text-blue-400" />
+              <h2 className="text-lg font-semibold text-white">Alterar Senha</h2>
+            </div>
+          </CardHeader>
+          <CardContent>
+            <form onSubmit={handleChangePassword} className="space-y-4 max-w-md">
+              <div>
+                <label className="block text-sm font-medium text-gray-300 mb-1">
+                  Senha atual
+                </label>
+                <Input
+                  type="password"
+                  value={currentPassword}
+                  onChange={(e) => setCurrentPassword(e.target.value)}
+                  placeholder="Digite sua senha atual"
+                  required
+                />
+              </div>
+              <div>
+                <label className="block text-sm font-medium text-gray-300 mb-1">
+                  Nova senha
+                </label>
+                <Input
+                  type="password"
+                  value={newPassword}
+                  onChange={(e) => setNewPassword(e.target.value)}
+                  placeholder="Digite a nova senha"
+                  minLength={6}
+                  required
+                />
+                <p className="text-xs text-gray-500 mt-1">Mínimo de 6 caracteres</p>
+              </div>
+              <div>
+                <label className="block text-sm font-medium text-gray-300 mb-1">
+                  Confirmar nova senha
+                </label>
+                <Input
+                  type="password"
+                  value={confirmPassword}
+                  onChange={(e) => setConfirmPassword(e.target.value)}
+                  placeholder="Confirme a nova senha"
+                  minLength={6}
+                  required
+                />
+              </div>
+
+              {passwordError && (
+                <div className="bg-red-500/10 border border-red-500/50 rounded-lg p-3 text-red-400 text-sm">
+                  {passwordError}
+                </div>
+              )}
+
+              {passwordSuccess && (
+                <div className="bg-emerald-500/10 border border-emerald-500/50 rounded-lg p-3 text-emerald-400 text-sm">
+                  Senha alterada com sucesso!
+                </div>
+              )}
+
+              <Button type="submit" disabled={isChangingPassword}>
+                {isChangingPassword ? (
+                  <>
+                    <Loader2 className="w-4 h-4 animate-spin mr-2" />
+                    Alterando...
+                  </>
+                ) : (
+                  'Alterar Senha'
+                )}
+              </Button>
+            </form>
+          </CardContent>
+        </Card>
 
         {isLoading ? (
           <div className="flex items-center justify-center h-64">
