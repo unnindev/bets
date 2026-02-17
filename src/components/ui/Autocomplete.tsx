@@ -8,6 +8,14 @@ interface Option {
   name: string;
 }
 
+// Normaliza texto: remove acentos, cedilha e converte para minúsculas
+const normalizeText = (text: string): string => {
+  return text
+    .toLowerCase()
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, ''); // Remove diacríticos (acentos, til, cedilha, etc.)
+};
+
 interface AutocompleteProps {
   label?: string;
   placeholder?: string;
@@ -52,13 +60,13 @@ export function Autocomplete({
   }, [value]);
 
   const filteredOptions = options.filter((opt) =>
-    opt.name.toLowerCase().includes(search.toLowerCase())
+    normalizeText(opt.name).includes(normalizeText(search))
   );
 
   const showCreateOption =
     allowCreate &&
     search.length > 0 &&
-    !options.some((opt) => opt.name.toLowerCase() === search.toLowerCase());
+    !options.some((opt) => normalizeText(opt.name) === normalizeText(search));
 
   const handleSelect = (optionName: string) => {
     onChange(optionName);
