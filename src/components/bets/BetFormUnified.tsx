@@ -462,19 +462,19 @@ export function BetFormUnified({
             required
           />
 
+          {/* Buscar Jogo */}
+          <button
+            type="button"
+            onClick={() => setShowMatchSelector(true)}
+            className="w-full flex items-center justify-center gap-2 px-4 py-3 bg-gray-800 hover:bg-gray-700 border border-dashed border-gray-600 rounded-lg text-gray-300 hover:text-white transition"
+          >
+            <Search className="w-4 h-4" />
+            Buscar Jogo (Auto-preencher times e campeonato)
+          </button>
+
           {/* Adicionar jogo */}
           <div className="bg-gray-800/50 rounded-lg p-4 space-y-4">
-            <div className="flex items-center justify-between">
-              <h3 className="text-sm font-medium text-gray-300">Adicionar Jogo</h3>
-              <button
-                type="button"
-                onClick={() => setShowMatchSelector(true)}
-                className="flex items-center gap-1 px-3 py-1.5 bg-gray-700 hover:bg-gray-600 rounded-lg text-gray-300 hover:text-white text-sm transition"
-              >
-                <Search className="w-3 h-3" />
-                Buscar
-              </button>
-            </div>
+            <h3 className="text-sm font-medium text-gray-300">Adicionar Jogo à Combinada</h3>
 
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
               <Autocomplete
