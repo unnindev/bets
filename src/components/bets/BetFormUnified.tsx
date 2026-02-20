@@ -5,9 +5,10 @@ import { Input } from '@/components/ui/Input';
 import { Select } from '@/components/ui/Select';
 import { Button } from '@/components/ui/Button';
 import { Autocomplete } from '@/components/ui/Autocomplete';
+import { MatchSelector } from '@/components/bets/MatchSelector';
 import { BET_TYPES, BET_RESULTS } from '@/lib/constants';
 import { createClient } from '@/lib/supabase/client';
-import { Plus, Trash2, Layers, Receipt } from 'lucide-react';
+import { Plus, Trash2, Layers, Receipt, Search } from 'lucide-react';
 import type { Bet, Wallet, BetType, BetResult, Team, Championship, CombinedBetItem } from '@/types';
 
 interface BetFormUnifiedProps {
@@ -36,6 +37,7 @@ export function BetFormUnified({
   const [isLoading, setIsLoading] = useState(false);
   const [teams, setTeams] = useState<Team[]>([]);
   const [championships, setChampionships] = useState<Championship[]>([]);
+  const [showMatchSelector, setShowMatchSelector] = useState(false);
   const supabase = createClient();
 
   // Estado para aposta simples
@@ -210,8 +212,67 @@ export function BetFormUnified({
     return BET_TYPES.find((t) => t.value === type)?.label || type;
   };
 
+  const handleMatchSelect = async (match: {
+    teamA: string;
+    teamB: string;
+    championship: string;
+    matchDate: string;
+  }) => {
+    // Criar times automaticamente se não existirem
+    const createTeamIfNeeded = async (name: string) => {
+      const exists = teams.some(
+        (t) => t.name.toLowerCase() === name.toLowerCase()
+      );
+      if (!exists) {
+        await handleCreateTeam(name);
+      }
+    };
+
+    // Criar campeonato automaticamente se não existir
+    const createChampionshipIfNeeded = async (name: string) => {
+      const exists = championships.some(
+        (c) => c.name.toLowerCase() === name.toLowerCase()
+      );
+      if (!exists) {
+        await handleCreateChampionship(name);
+      }
+    };
+
+    // Criar entidades se necessário
+    await Promise.all([
+      createTeamIfNeeded(match.teamA),
+      createTeamIfNeeded(match.teamB),
+      createChampionshipIfNeeded(match.championship),
+    ]);
+
+    // Atualizar formulário baseado no modo atual
+    if (betMode === 'simple') {
+      setSimpleForm((prev) => ({
+        ...prev,
+        team_a: match.teamA,
+        team_b: match.teamB,
+        championship: match.championship,
+      }));
+    } else {
+      // Para combinada, preenche o item atual
+      setCurrentItem((prev) => ({
+        ...prev,
+        team_a: match.teamA,
+        team_b: match.teamB,
+        championship: match.championship,
+      }));
+    }
+  };
+
   return (
-    <form onSubmit={handleSubmit} className="p-6 space-y-6">
+    <>
+      <MatchSelector
+        isOpen={showMatchSelector}
+        onClose={() => setShowMatchSelector(false)}
+        onSelect={handleMatchSelect}
+      />
+
+      <form onSubmit={handleSubmit} className="p-6 space-y-6">
       {/* Seletor de modo */}
       <div className="flex gap-2 p-1 bg-gray-800 rounded-lg">
         <button
@@ -251,6 +312,16 @@ export function BetFormUnified({
             options={walletOptions}
             required
           />
+
+          {/* Buscar Jogo */}
+          <button
+            type="button"
+            onClick={() => setShowMatchSelector(true)}
+            className="w-full flex items-center justify-center gap-2 px-4 py-3 bg-gray-800 hover:bg-gray-700 border border-dashed border-gray-600 rounded-lg text-gray-300 hover:text-white transition"
+          >
+            <Search className="w-4 h-4" />
+            Buscar Jogo (Auto-preencher times e campeonato)
+          </button>
 
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
             <Autocomplete
@@ -393,7 +464,17 @@ export function BetFormUnified({
 
           {/* Adicionar jogo */}
           <div className="bg-gray-800/50 rounded-lg p-4 space-y-4">
-            <h3 className="text-sm font-medium text-gray-300">Adicionar Jogo</h3>
+            <div className="flex items-center justify-between">
+              <h3 className="text-sm font-medium text-gray-300">Adicionar Jogo</h3>
+              <button
+                type="button"
+                onClick={() => setShowMatchSelector(true)}
+                className="flex items-center gap-1 px-3 py-1.5 bg-gray-700 hover:bg-gray-600 rounded-lg text-gray-300 hover:text-white text-sm transition"
+              >
+                <Search className="w-3 h-3" />
+                Buscar
+              </button>
+            </div>
 
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
               <Autocomplete
@@ -556,14 +637,15 @@ export function BetFormUnified({
       )}
 
       {/* Botões */}
-      <div className="flex gap-3 justify-end pt-4 border-t border-gray-800">
-        <Button type="button" variant="secondary" onClick={onCancel}>
-          Cancelar
-        </Button>
-        <Button type="submit" isLoading={isLoading}>
-          Criar Aposta
-        </Button>
-      </div>
-    </form>
+        <div className="flex gap-3 justify-end pt-4 border-t border-gray-800">
+          <Button type="button" variant="secondary" onClick={onCancel}>
+            Cancelar
+          </Button>
+          <Button type="submit" isLoading={isLoading}>
+            Criar Aposta
+          </Button>
+        </div>
+      </form>
+    </>
   );
 }
