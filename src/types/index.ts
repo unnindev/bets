@@ -66,6 +66,7 @@ export interface Bet {
   team_b: string;
   championship: string;
   match_date: string;
+  fixture_id?: number; // ID do jogo na API-Football para verificação automática
 
   // Aposta
   bet_type: BetType;
@@ -144,6 +145,7 @@ export interface CombinedBetItem {
   championship: string;
   bet_type: BetType;
   bet_type_description?: string;
+  fixture_id?: number; // ID do jogo na API-Football
   created_at?: string;
 }
 

@@ -27,6 +27,7 @@ import {
   ChevronRight,
   Calendar,
   Layers,
+  RefreshCw,
 } from 'lucide-react';
 import { useWallet } from '@/contexts/WalletContext';
 import type { Bet, Wallet, BetResult, CombinedBet, CombinedBetItem } from '@/types';
@@ -185,6 +186,8 @@ function BetsContent() {
   const [editingCombinedBet, setEditingCombinedBet] = useState<CombinedBet | null>(null);
   const [deleteConfirm, setDeleteConfirm] = useState<string | null>(null);
   const [deleteCombinedConfirm, setDeleteCombinedConfirm] = useState<string | null>(null);
+  const [isCheckingResults, setIsCheckingResults] = useState(false);
+  const [checkResultsMessage, setCheckResultsMessage] = useState<string | null>(null);
 
   // Data selecionada (padrão: hoje)
   const [selectedDate, setSelectedDate] = useState(() => {
@@ -386,6 +389,35 @@ function BetsContent() {
     setEditingCombinedBet(null);
   };
 
+  // Verificar resultados automaticamente
+  const handleCheckResults = async () => {
+    setIsCheckingResults(true);
+    setCheckResultsMessage(null);
+
+    try {
+      const response = await fetch('/api/bets/check-results', {
+        method: 'POST',
+      });
+      const data = await response.json();
+
+      if (data.success) {
+        setCheckResultsMessage(data.message);
+        if (data.updated > 0) {
+          loadBetsForDate();
+          reloadWallets();
+        }
+      } else {
+        setCheckResultsMessage(`Erro: ${data.error}`);
+      }
+    } catch (error) {
+      setCheckResultsMessage('Erro ao verificar resultados');
+    } finally {
+      setIsCheckingResults(false);
+      // Limpar mensagem após 5 segundos
+      setTimeout(() => setCheckResultsMessage(null), 5000);
+    }
+  };
+
   // Navegação de data
   const goToPreviousDay = () => {
     const date = parseLocalDate(selectedDate);
@@ -581,11 +613,28 @@ function BetsContent() {
             {filteredBets.length + filteredCombinedBets.length} aposta{(filteredBets.length + filteredCombinedBets.length) !== 1 ? 's' : ''}
             {totals.pending > 0 && ` (${totals.pending} pendente${totals.pending !== 1 ? 's' : ''})`}
           </p>
+          {checkResultsMessage && (
+            <p className={`text-sm mt-1 ${checkResultsMessage.startsWith('Erro') ? 'text-red-400' : 'text-emerald-400'}`}>
+              {checkResultsMessage}
+            </p>
+          )}
         </div>
-        <Button onClick={() => setIsModalOpen(true)}>
-          <Plus className="w-5 h-5" />
-          Nova Aposta
-        </Button>
+        <div className="flex items-center gap-2">
+          {totals.pending > 0 && (
+            <Button
+              variant="secondary"
+              onClick={handleCheckResults}
+              disabled={isCheckingResults}
+            >
+              <RefreshCw className={`w-4 h-4 ${isCheckingResults ? 'animate-spin' : ''}`} />
+              {isCheckingResults ? 'Verificando...' : 'Atualizar Resultados'}
+            </Button>
+          )}
+          <Button onClick={() => setIsModalOpen(true)}>
+            <Plus className="w-5 h-5" />
+            Nova Aposta
+          </Button>
+        </div>
       </div>
 
       {/* Lista de Apostas */}

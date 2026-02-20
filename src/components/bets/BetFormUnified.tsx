@@ -46,6 +46,7 @@ export function BetFormUnified({
     team_a: '',
     team_b: '',
     championship: '',
+    fixture_id: undefined as number | undefined,
     bet_type: 'team_a' as BetType,
     bet_type_description: '',
     amount: '',
@@ -75,6 +76,7 @@ export function BetFormUnified({
     championship: '',
     bet_type: 'team_a',
     bet_type_description: '',
+    fixture_id: undefined,
   });
 
   useEffect(() => {
@@ -156,6 +158,7 @@ export function BetFormUnified({
       championship: '',
       bet_type: 'team_a',
       bet_type_description: '',
+      fixture_id: undefined,
     });
   };
 
@@ -174,6 +177,7 @@ export function BetFormUnified({
           team_a: simpleForm.team_a,
           team_b: simpleForm.team_b,
           championship: simpleForm.championship,
+          fixture_id: simpleForm.fixture_id,
           bet_type: simpleForm.bet_type,
           bet_type_description:
             simpleForm.bet_type === 'other' ? simpleForm.bet_type_description : undefined,
@@ -213,6 +217,7 @@ export function BetFormUnified({
   };
 
   const handleMatchSelect = async (match: {
+    fixtureId: number;
     teamA: string;
     teamB: string;
     championship: string;
@@ -252,6 +257,7 @@ export function BetFormUnified({
         team_a: match.teamA,
         team_b: match.teamB,
         championship: match.championship,
+        fixture_id: match.fixtureId,
       }));
     } else {
       // Para combinada, preenche o item atual
@@ -260,6 +266,7 @@ export function BetFormUnified({
         team_a: match.teamA,
         team_b: match.teamB,
         championship: match.championship,
+        fixture_id: match.fixtureId,
       }));
     }
   };

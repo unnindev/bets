@@ -30,6 +30,7 @@ export function BetForm({ wallets, bet, onSubmit, onCancel }: BetFormProps) {
     team_a: bet?.team_a || '',
     team_b: bet?.team_b || '',
     championship: bet?.championship || '',
+    fixture_id: bet?.fixture_id as number | undefined,
     bet_type: bet?.bet_type || 'team_a',
     bet_type_description: bet?.bet_type_description || '',
     amount: bet?.amount?.toString() || '',
@@ -91,6 +92,7 @@ export function BetForm({ wallets, bet, onSubmit, onCancel }: BetFormProps) {
         team_a: formData.team_a,
         team_b: formData.team_b,
         championship: formData.championship,
+        fixture_id: formData.fixture_id,
         bet_type: formData.bet_type as BetType,
         bet_type_description:
           formData.bet_type === 'other' ? formData.bet_type_description : undefined,
@@ -133,6 +135,7 @@ export function BetForm({ wallets, bet, onSubmit, onCancel }: BetFormProps) {
   };
 
   const handleMatchSelect = async (match: {
+    fixtureId: number;
     teamA: string;
     teamB: string;
     championship: string;
@@ -171,6 +174,7 @@ export function BetForm({ wallets, bet, onSubmit, onCancel }: BetFormProps) {
       team_a: match.teamA,
       team_b: match.teamB,
       championship: match.championship,
+      fixture_id: match.fixtureId,
     }));
   };
 

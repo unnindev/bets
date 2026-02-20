@@ -17,6 +17,7 @@ interface MatchSelectorProps {
   isOpen: boolean;
   onClose: () => void;
   onSelect: (match: {
+    fixtureId: number;
     teamA: string;
     teamB: string;
     championship: string;
@@ -117,6 +118,7 @@ export function MatchSelector({ isOpen, onClose, onSelect }: MatchSelectorProps)
 
   const handleSelectMatch = (match: SimpleMatch) => {
     onSelect({
+      fixtureId: match.id,
       teamA: match.homeTeam,
       teamB: match.awayTeam,
       championship: match.league,
