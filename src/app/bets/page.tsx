@@ -15,7 +15,9 @@ import {
   RESULT_COLORS,
   RESULT_LABELS,
   BET_TYPES,
+  BET_RESULTS,
 } from '@/lib/constants';
+import { Input } from '@/components/ui/Input';
 import {
   Plus,
   Edit2,
@@ -43,6 +45,136 @@ const parseLocalDate = (dateStr: string): Date => {
   return new Date(year, month - 1, day, 12, 0, 0);
 };
 
+// Formulário de edição de aposta combinada
+interface CombinedBetEditFormProps {
+  bet: CombinedBet;
+  onSubmit: (data: {
+    result: BetResult;
+    return_amount: number;
+    is_risky: boolean;
+    notes?: string;
+  }) => Promise<void>;
+  onCancel: () => void;
+}
+
+function CombinedBetEditForm({ bet, onSubmit, onCancel }: CombinedBetEditFormProps) {
+  const [result, setResult] = useState<BetResult>(bet.result);
+  const [returnAmount, setReturnAmount] = useState(String(bet.return_amount));
+  const [isRisky, setIsRisky] = useState(bet.is_risky);
+  const [notes, setNotes] = useState(bet.notes || '');
+  const [isLoading, setIsLoading] = useState(false);
+
+  // Calcular retorno automaticamente quando resultado mudar para win
+  useEffect(() => {
+    if (result === 'win') {
+      const calculated = Number(bet.amount) * Number(bet.odds);
+      setReturnAmount(calculated.toFixed(2));
+    } else if (result === 'loss') {
+      setReturnAmount('0');
+    }
+  }, [result, bet.amount, bet.odds]);
+
+  const handleSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setIsLoading(true);
+    try {
+      await onSubmit({
+        result,
+        return_amount: Number(returnAmount),
+        is_risky: isRisky,
+        notes: notes || undefined,
+      });
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
+  const getBetTypeLabel = (type: string) => {
+    return BET_TYPES.find((t) => t.value === type)?.label || type;
+  };
+
+  return (
+    <form onSubmit={handleSubmit} className="p-6 space-y-6">
+      {/* Resumo da aposta */}
+      <div className="bg-gray-800/50 rounded-lg p-4 space-y-2">
+        <div className="flex items-center gap-2 text-purple-400 font-medium">
+          <Layers className="w-4 h-4" />
+          <span>Combinada ({bet.items?.length || 0} jogos)</span>
+        </div>
+        {bet.items?.map((item, index) => (
+          <div key={index} className="text-sm text-gray-400 pl-6">
+            {item.team_a} x {item.team_b} • {item.championship} • {getBetTypeLabel(item.bet_type)}
+          </div>
+        ))}
+        <div className="flex gap-4 mt-3 pt-3 border-t border-gray-700 text-sm">
+          <div>
+            <span className="text-gray-500">Apostado: </span>
+            <span className="text-white font-medium">{formatCurrency(bet.amount)}</span>
+          </div>
+          <div>
+            <span className="text-gray-500">Odds: </span>
+            <span className="text-white font-medium">{bet.odds.toFixed(2)}</span>
+          </div>
+        </div>
+      </div>
+
+      {/* Resultado */}
+      <Select
+        label="Resultado"
+        value={result}
+        onChange={(e) => setResult(e.target.value as BetResult)}
+        options={BET_RESULTS}
+      />
+
+      {/* Retorno */}
+      {result !== 'pending' && (
+        <Input
+          label="Retorno (R$)"
+          type="number"
+          step="0.01"
+          min="0"
+          value={returnAmount}
+          onChange={(e) => setReturnAmount(e.target.value)}
+          placeholder="0.00"
+        />
+      )}
+
+      {/* Arriscada */}
+      <label className="flex items-center gap-3 cursor-pointer">
+        <input
+          type="checkbox"
+          checked={isRisky}
+          onChange={(e) => setIsRisky(e.target.checked)}
+          className="w-5 h-5 rounded border-gray-600 bg-gray-800 text-emerald-500 focus:ring-emerald-500 focus:ring-offset-gray-900"
+        />
+        <span className="text-gray-300">Aposta arriscada</span>
+      </label>
+
+      {/* Notas */}
+      <div>
+        <label className="block text-sm font-medium text-gray-300 mb-2">Observações</label>
+        <textarea
+          value={notes}
+          onChange={(e) => setNotes(e.target.value)}
+          rows={2}
+          className="w-full bg-gray-800 border border-gray-700 rounded-lg px-4 py-2.5 text-white placeholder-gray-500 focus:outline-none focus:ring-2 focus:ring-emerald-500 focus:border-transparent transition resize-none"
+          placeholder="Anotações sobre a aposta..."
+        />
+      </div>
+
+      {/* Botões */}
+      <div className="flex gap-3 justify-end pt-4 border-t border-gray-800">
+        <Button type="button" variant="secondary" onClick={onCancel}>
+          Cancelar
+        </Button>
+        <Button type="submit" isLoading={isLoading}>
+          Salvar
+        </Button>
+      </div>
+    </form>
+  );
+}
+
 function BetsContent() {
   const { selectedWalletId, selectedWallet, wallets, isLoading: walletLoading, reloadWallets } = useWallet();
   const [bets, setBets] = useState<Bet[]>([]);
@@ -50,6 +182,7 @@ function BetsContent() {
   const [isLoading, setIsLoading] = useState(true);
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [editingBet, setEditingBet] = useState<Bet | null>(null);
+  const [editingCombinedBet, setEditingCombinedBet] = useState<CombinedBet | null>(null);
   const [deleteConfirm, setDeleteConfirm] = useState<string | null>(null);
   const [deleteCombinedConfirm, setDeleteCombinedConfirm] = useState<string | null>(null);
 
@@ -210,14 +343,47 @@ function BetsContent() {
     }
   };
 
+  const handleUpdateCombinedBet = async (data: {
+    result: BetResult;
+    return_amount: number;
+    is_risky: boolean;
+    notes?: string;
+  }) => {
+    if (!editingCombinedBet) return;
+
+    const { error } = await supabase
+      .from('combined_bets')
+      .update({
+        result: data.result,
+        return_amount: data.return_amount,
+        is_risky: data.is_risky,
+        notes: data.notes,
+      })
+      .eq('id', editingCombinedBet.id);
+
+    if (!error) {
+      setEditingCombinedBet(null);
+      loadBetsForDate();
+      reloadWallets(); // Atualizar saldo
+    }
+  };
+
   const openEditModal = (bet: Bet) => {
     setEditingBet(bet);
     setIsModalOpen(true);
   };
 
+  const openEditCombinedModal = (bet: CombinedBet) => {
+    setEditingCombinedBet(bet);
+  };
+
   const closeModal = () => {
     setIsModalOpen(false);
     setEditingBet(null);
+  };
+
+  const closeCombinedEditModal = () => {
+    setEditingCombinedBet(null);
   };
 
   // Navegação de data
@@ -594,6 +760,12 @@ function BetsContent() {
                     </span>
                     <div className="flex items-center gap-1">
                       <button
+                        onClick={() => openEditCombinedModal(bet)}
+                        className="p-2 text-gray-400 hover:text-white hover:bg-gray-800 rounded-lg transition"
+                      >
+                        <Edit2 className="w-4 h-4" />
+                      </button>
+                      <button
                         onClick={() => setDeleteCombinedConfirm(bet.id)}
                         className="p-2 text-gray-400 hover:text-red-400 hover:bg-gray-800 rounded-lg transition"
                       >
@@ -647,6 +819,22 @@ function BetsContent() {
             bet={editingBet}
             onSubmit={handleUpdateBet}
             onCancel={closeModal}
+          />
+        )}
+      </Modal>
+
+      {/* Modal de Editar Aposta Combinada */}
+      <Modal
+        isOpen={!!editingCombinedBet}
+        onClose={closeCombinedEditModal}
+        title="Editar Aposta Combinada"
+        size="md"
+      >
+        {editingCombinedBet && (
+          <CombinedBetEditForm
+            bet={editingCombinedBet}
+            onSubmit={handleUpdateCombinedBet}
+            onCancel={closeCombinedEditModal}
           />
         )}
       </Modal>
