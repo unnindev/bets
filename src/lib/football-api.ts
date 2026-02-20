@@ -3,6 +3,13 @@ import type { FootballAPIResponse, FootballMatch, SimpleMatch } from '@/types/fo
 // Cache em memória com TTL
 const cache = new Map<string, { data: unknown; timestamp: number }>();
 
+// Rate limit info (atualizado a cada request real)
+let rateLimitInfo = {
+  requestsRemaining: 100,
+  requestsLimit: 100,
+  lastUpdated: 0,
+};
+
 // TTL padrão: 5 minutos para jogos, 1 hora para dados estáticos
 const CACHE_TTL_FIXTURES = 5 * 60 * 1000; // 5 minutos
 const CACHE_TTL_STATIC = 60 * 60 * 1000; // 1 hora
@@ -54,6 +61,17 @@ export async function fetchFootballAPI<T>(
 
   if (!response.ok) {
     throw new Error(`API Football error: ${response.status} ${response.statusText}`);
+  }
+
+  // Capturar informações de rate limit dos headers
+  const remaining = response.headers.get('x-ratelimit-requests-remaining');
+  const limit = response.headers.get('x-ratelimit-requests-limit');
+  if (remaining !== null && limit !== null) {
+    rateLimitInfo = {
+      requestsRemaining: parseInt(remaining, 10),
+      requestsLimit: parseInt(limit, 10),
+      lastUpdated: Date.now(),
+    };
   }
 
   const data = await response.json() as FootballAPIResponse<T>;
@@ -148,4 +166,9 @@ export function getCacheStats(): { size: number; keys: string[] } {
     size: cache.size,
     keys: Array.from(cache.keys()),
   };
+}
+
+// Obter informações de rate limit
+export function getRateLimitInfo() {
+  return rateLimitInfo;
 }

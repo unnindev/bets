@@ -1,5 +1,5 @@
 import { NextResponse } from 'next/server';
-import { getFixturesByDate, getLiveFixtures, toSimpleMatch } from '@/lib/football-api';
+import { getFixturesByDate, getLiveFixtures, toSimpleMatch, getRateLimitInfo } from '@/lib/football-api';
 
 export async function GET(request: Request) {
   try {
@@ -37,6 +37,7 @@ export async function GET(request: Request) {
       success: true,
       count: simpleMatches.length,
       matches: simpleMatches,
+      rateLimit: getRateLimitInfo(),
     });
   } catch (error) {
     console.error('Error fetching fixtures:', error);
