@@ -1,0 +1,55 @@
+import { NextResponse } from 'next/server';
+import { getFixturesByDate, getLiveFixtures, toSimpleMatch } from '@/lib/football-api';
+
+export async function GET(request: Request) {
+  try {
+    const { searchParams } = new URL(request.url);
+    const date = searchParams.get('date');
+    const league = searchParams.get('league');
+    const live = searchParams.get('live');
+
+    let matches;
+
+    if (live === 'true') {
+      // Buscar jogos ao vivo
+      matches = await getLiveFixtures();
+    } else if (date) {
+      // Buscar jogos por data
+      const leagueId = league ? parseInt(league, 10) : undefined;
+      matches = await getFixturesByDate(date, leagueId);
+    } else {
+      // Default: jogos de hoje
+      const today = new Date().toISOString().split('T')[0];
+      matches = await getFixturesByDate(today);
+    }
+
+    // Converter para formato simplificado
+    const simpleMatches = matches.map(toSimpleMatch);
+
+    // Ordenar por horário
+    simpleMatches.sort((a, b) => {
+      const dateA = new Date(`${a.date}T${a.time}`);
+      const dateB = new Date(`${b.date}T${b.time}`);
+      return dateA.getTime() - dateB.getTime();
+    });
+
+    return NextResponse.json({
+      success: true,
+      count: simpleMatches.length,
+      matches: simpleMatches,
+    });
+  } catch (error) {
+    console.error('Error fetching fixtures:', error);
+
+    const errorMessage = error instanceof Error ? error.message : 'Erro desconhecido';
+
+    return NextResponse.json(
+      {
+        success: false,
+        error: errorMessage,
+        matches: [],
+      },
+      { status: 500 }
+    );
+  }
+}

@@ -5,8 +5,10 @@ import { Input } from '@/components/ui/Input';
 import { Select } from '@/components/ui/Select';
 import { Button } from '@/components/ui/Button';
 import { Autocomplete } from '@/components/ui/Autocomplete';
+import { MatchSelector } from '@/components/bets/MatchSelector';
 import { BET_TYPES, BET_RESULTS } from '@/lib/constants';
 import { createClient } from '@/lib/supabase/client';
+import { Search } from 'lucide-react';
 import type { Bet, Wallet, BetType, BetResult, Team, Championship } from '@/types';
 
 interface BetFormProps {
@@ -20,6 +22,7 @@ export function BetForm({ wallets, bet, onSubmit, onCancel }: BetFormProps) {
   const [isLoading, setIsLoading] = useState(false);
   const [teams, setTeams] = useState<Team[]>([]);
   const [championships, setChampionships] = useState<Championship[]>([]);
+  const [showMatchSelector, setShowMatchSelector] = useState(false);
   const supabase = createClient();
 
   const [formData, setFormData] = useState({
@@ -129,163 +132,223 @@ export function BetForm({ wallets, bet, onSubmit, onCancel }: BetFormProps) {
     }
   };
 
+  const handleMatchSelect = async (match: {
+    teamA: string;
+    teamB: string;
+    championship: string;
+    matchDate: string;
+  }) => {
+    // Criar times automaticamente se não existirem
+    const createTeamIfNeeded = async (name: string) => {
+      const exists = teams.some(
+        (t) => t.name.toLowerCase() === name.toLowerCase()
+      );
+      if (!exists) {
+        await handleCreateTeam(name);
+      }
+    };
+
+    // Criar campeonato automaticamente se não existir
+    const createChampionshipIfNeeded = async (name: string) => {
+      const exists = championships.some(
+        (c) => c.name.toLowerCase() === name.toLowerCase()
+      );
+      if (!exists) {
+        await handleCreateChampionship(name);
+      }
+    };
+
+    // Criar entidades se necessário
+    await Promise.all([
+      createTeamIfNeeded(match.teamA),
+      createTeamIfNeeded(match.teamB),
+      createChampionshipIfNeeded(match.championship),
+    ]);
+
+    // Atualizar formulário
+    setFormData((prev) => ({
+      ...prev,
+      team_a: match.teamA,
+      team_b: match.teamB,
+      championship: match.championship,
+    }));
+  };
+
   return (
-    <form onSubmit={handleSubmit} className="p-6 space-y-6">
-      {/* Carteira */}
-      <Select
-        label="Carteira"
-        name="wallet_id"
-        value={formData.wallet_id}
-        onChange={handleChange}
-        options={walletOptions}
-        required
+    <>
+      <MatchSelector
+        isOpen={showMatchSelector}
+        onClose={() => setShowMatchSelector(false)}
+        onSelect={handleMatchSelect}
       />
 
-      {/* Times */}
-      <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-        <Autocomplete
-          label="Time A (Casa)"
-          placeholder="Buscar time..."
-          options={teams}
-          value={formData.team_a}
-          onChange={(value) => setFormData((prev) => ({ ...prev, team_a: value }))}
-          onCreateNew={handleCreateTeam}
-          allowCreate
-          required
-        />
-        <Autocomplete
-          label="Time B (Visitante)"
-          placeholder="Buscar time..."
-          options={teams}
-          value={formData.team_b}
-          onChange={(value) => setFormData((prev) => ({ ...prev, team_b: value }))}
-          onCreateNew={handleCreateTeam}
-          allowCreate
-          required
-        />
-      </div>
-
-      {/* Campeonato */}
-      <Autocomplete
-        label="Campeonato"
-        placeholder="Buscar campeonato..."
-        options={championships}
-        value={formData.championship}
-        onChange={(value) => setFormData((prev) => ({ ...prev, championship: value }))}
-        onCreateNew={handleCreateChampionship}
-        allowCreate
-        required
-      />
-
-      {/* Tipo de Aposta */}
-      <div className="space-y-4">
+      <form onSubmit={handleSubmit} className="p-6 space-y-6">
+        {/* Carteira */}
         <Select
-          label="Tipo de Aposta"
-          name="bet_type"
-          value={formData.bet_type}
+          label="Carteira"
+          name="wallet_id"
+          value={formData.wallet_id}
           onChange={handleChange}
-          options={BET_TYPES}
+          options={walletOptions}
           required
         />
-        {formData.bet_type === 'other' && (
-          <Input
-            label="Descreva a aposta"
-            name="bet_type_description"
-            value={formData.bet_type_description}
-            onChange={handleChange}
-            placeholder="Ex: Handicap +1.5"
+
+        {/* Buscar Jogo */}
+        <button
+          type="button"
+          onClick={() => setShowMatchSelector(true)}
+          className="w-full flex items-center justify-center gap-2 px-4 py-3 bg-gray-800 hover:bg-gray-700 border border-dashed border-gray-600 rounded-lg text-gray-300 hover:text-white transition"
+        >
+          <Search className="w-4 h-4" />
+          Buscar Jogo (Auto-preencher times e campeonato)
+        </button>
+
+        {/* Times */}
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+          <Autocomplete
+            label="Time A (Casa)"
+            placeholder="Buscar time..."
+            options={teams}
+            value={formData.team_a}
+            onChange={(value) => setFormData((prev) => ({ ...prev, team_a: value }))}
+            onCreateNew={handleCreateTeam}
+            allowCreate
             required
           />
-        )}
-      </div>
+          <Autocomplete
+            label="Time B (Visitante)"
+            placeholder="Buscar time..."
+            options={teams}
+            value={formData.team_b}
+            onChange={(value) => setFormData((prev) => ({ ...prev, team_b: value }))}
+            onCreateNew={handleCreateTeam}
+            allowCreate
+            required
+          />
+        </div>
 
-      {/* Valor e Odds */}
-      <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-        <Input
-          label="Valor Apostado (R$)"
-          name="amount"
-          type="number"
-          step="0.01"
-          min="0"
-          value={formData.amount}
-          onChange={handleChange}
-          placeholder="100.00"
+        {/* Campeonato */}
+        <Autocomplete
+          label="Campeonato"
+          placeholder="Buscar campeonato..."
+          options={championships}
+          value={formData.championship}
+          onChange={(value) => setFormData((prev) => ({ ...prev, championship: value }))}
+          onCreateNew={handleCreateChampionship}
+          allowCreate
           required
         />
-        <Input
-          label="Odds"
-          name="odds"
-          type="number"
-          step="0.01"
-          min="1"
-          value={formData.odds}
-          onChange={handleChange}
-          placeholder="1.85"
-          required
-        />
-      </div>
 
-      {/* Resultado */}
-      <div className="space-y-4">
-        <Select
-          label="Resultado"
-          name="result"
-          value={formData.result}
-          onChange={handleChange}
-          options={BET_RESULTS}
-        />
+        {/* Tipo de Aposta */}
+        <div className="space-y-4">
+          <Select
+            label="Tipo de Aposta"
+            name="bet_type"
+            value={formData.bet_type}
+            onChange={handleChange}
+            options={BET_TYPES}
+            required
+          />
+          {formData.bet_type === 'other' && (
+            <Input
+              label="Descreva a aposta"
+              name="bet_type_description"
+              value={formData.bet_type_description}
+              onChange={handleChange}
+              placeholder="Ex: Handicap +1.5"
+              required
+            />
+          )}
+        </div>
 
-        {formData.result !== 'pending' && (
+        {/* Valor e Odds */}
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
           <Input
-            label="Retorno (R$)"
-            name="return_amount"
+            label="Valor Apostado (R$)"
+            name="amount"
             type="number"
             step="0.01"
             min="0"
-            value={formData.return_amount}
+            value={formData.amount}
             onChange={handleChange}
-            placeholder="185.00"
+            placeholder="100.00"
+            required
           />
-        )}
-      </div>
-
-      {/* Arriscado e Notas */}
-      <div className="space-y-4">
-        <label className="flex items-center gap-3 cursor-pointer">
-          <input
-            type="checkbox"
-            name="is_risky"
-            checked={formData.is_risky}
+          <Input
+            label="Odds"
+            name="odds"
+            type="number"
+            step="0.01"
+            min="1"
+            value={formData.odds}
             onChange={handleChange}
-            className="w-5 h-5 rounded border-gray-600 bg-gray-800 text-emerald-500 focus:ring-emerald-500 focus:ring-offset-gray-900"
-          />
-          <span className="text-gray-300">Aposta arriscada</span>
-        </label>
-
-        <div>
-          <label className="block text-sm font-medium text-gray-300 mb-2">
-            Observações
-          </label>
-          <textarea
-            name="notes"
-            value={formData.notes}
-            onChange={handleChange}
-            rows={3}
-            className="w-full bg-gray-800 border border-gray-700 rounded-lg px-4 py-2.5 text-white placeholder-gray-500 focus:outline-none focus:ring-2 focus:ring-emerald-500 focus:border-transparent transition resize-none"
-            placeholder="Anotações sobre a aposta..."
+            placeholder="1.85"
+            required
           />
         </div>
-      </div>
 
-      {/* Botões */}
-      <div className="flex gap-3 justify-end pt-4 border-t border-gray-800">
-        <Button type="button" variant="secondary" onClick={onCancel}>
-          Cancelar
-        </Button>
-        <Button type="submit" isLoading={isLoading}>
-          {bet ? 'Atualizar' : 'Criar'} Aposta
-        </Button>
-      </div>
-    </form>
+        {/* Resultado */}
+        <div className="space-y-4">
+          <Select
+            label="Resultado"
+            name="result"
+            value={formData.result}
+            onChange={handleChange}
+            options={BET_RESULTS}
+          />
+
+          {formData.result !== 'pending' && (
+            <Input
+              label="Retorno (R$)"
+              name="return_amount"
+              type="number"
+              step="0.01"
+              min="0"
+              value={formData.return_amount}
+              onChange={handleChange}
+              placeholder="185.00"
+            />
+          )}
+        </div>
+
+        {/* Arriscado e Notas */}
+        <div className="space-y-4">
+          <label className="flex items-center gap-3 cursor-pointer">
+            <input
+              type="checkbox"
+              name="is_risky"
+              checked={formData.is_risky}
+              onChange={handleChange}
+              className="w-5 h-5 rounded border-gray-600 bg-gray-800 text-emerald-500 focus:ring-emerald-500 focus:ring-offset-gray-900"
+            />
+            <span className="text-gray-300">Aposta arriscada</span>
+          </label>
+
+          <div>
+            <label className="block text-sm font-medium text-gray-300 mb-2">
+              Observações
+            </label>
+            <textarea
+              name="notes"
+              value={formData.notes}
+              onChange={handleChange}
+              rows={3}
+              className="w-full bg-gray-800 border border-gray-700 rounded-lg px-4 py-2.5 text-white placeholder-gray-500 focus:outline-none focus:ring-2 focus:ring-emerald-500 focus:border-transparent transition resize-none"
+              placeholder="Anotações sobre a aposta..."
+            />
+          </div>
+        </div>
+
+        {/* Botões */}
+        <div className="flex gap-3 justify-end pt-4 border-t border-gray-800">
+          <Button type="button" variant="secondary" onClick={onCancel}>
+            Cancelar
+          </Button>
+          <Button type="submit" isLoading={isLoading}>
+            {bet ? 'Atualizar' : 'Criar'} Aposta
+          </Button>
+        </div>
+      </form>
+    </>
   );
 }
