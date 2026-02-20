@@ -210,10 +210,10 @@ export function MatchSelector({ isOpen, onClose, onSelect }: MatchSelectorProps)
           </div>
 
           {/* Liga */}
-          <div className="flex gap-2 overflow-x-auto pb-2">
+          <div className="flex gap-2 overflow-x-auto pb-2 scrollbar-thin scrollbar-thumb-gray-700 scrollbar-track-transparent" style={{ WebkitOverflowScrolling: 'touch', scrollbarWidth: 'thin' }}>
             <button
               onClick={() => setSelectedLeague(null)}
-              className={`px-3 py-1.5 rounded-full text-sm whitespace-nowrap transition ${
+              className={`flex-shrink-0 px-3 py-1.5 rounded-full text-sm whitespace-nowrap transition ${
                 selectedLeague === null
                   ? 'bg-emerald-500 text-white'
                   : 'bg-gray-800 text-gray-400 hover:text-white'
@@ -221,11 +221,11 @@ export function MatchSelector({ isOpen, onClose, onSelect }: MatchSelectorProps)
             >
               Todas
             </button>
-            {MAIN_LEAGUES.slice(0, 6).map((league) => (
+            {MAIN_LEAGUES.map((league) => (
               <button
                 key={league.id}
                 onClick={() => setSelectedLeague(league.id)}
-                className={`px-3 py-1.5 rounded-full text-sm whitespace-nowrap transition ${
+                className={`flex-shrink-0 px-3 py-1.5 rounded-full text-sm whitespace-nowrap transition ${
                   selectedLeague === league.id
                     ? 'bg-emerald-500 text-white'
                     : 'bg-gray-800 text-gray-400 hover:text-white'
