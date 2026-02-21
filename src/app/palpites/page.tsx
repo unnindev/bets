@@ -410,179 +410,255 @@ function PalpitesContent() {
       }
 
       const reasons: string[] = [];
+      const warnings: string[] = [];
       let totalRelevantBets = 0;
-      let weightedWinRate = 0;
-      let weightSum = 0;
 
-      // Analisar time da casa (histórico do usuário)
-      if (hasTeamAHistory && teamAStats.winRate >= 50) {
-        const weight = Math.min(teamAStats.totalBets / 10, 1);
-        weightedWinRate += teamAStats.winRate * weight;
-        weightSum += weight;
-        totalRelevantBets += teamAStats.totalBets;
+      // ========== ANÁLISE INTELIGENTE ==========
+      // Em vez de somar win rates, analisamos a DIFERENÇA entre os times
 
-        if (teamAStats.winRate >= 60) {
-          reasons.push(
-            `${match.homeTeam}: ${formatPercentage(teamAStats.winRate)} de acerto em ${teamAStats.totalBets} apostas`
-          );
-        }
-      }
+      const teamAWinRate = hasTeamAHistory ? teamAStats.winRate : 0;
+      const teamBWinRate = hasTeamBHistory ? teamBStats.winRate : 0;
+      const teamABets = hasTeamAHistory ? teamAStats.totalBets : 0;
+      const teamBBets = hasTeamBHistory ? teamBStats.totalBets : 0;
 
-      // Analisar time visitante (histórico do usuário)
-      if (hasTeamBHistory && teamBStats.winRate >= 50) {
-        const weight = Math.min(teamBStats.totalBets / 10, 1);
-        weightedWinRate += teamBStats.winRate * weight;
-        weightSum += weight;
-        totalRelevantBets += teamBStats.totalBets;
+      totalRelevantBets = teamABets + teamBBets;
 
-        if (teamBStats.winRate >= 60) {
-          reasons.push(
-            `${match.awayTeam}: ${formatPercentage(teamBStats.winRate)} de acerto em ${teamBStats.totalBets} apostas`
-          );
-        }
-      }
-
-      // Analisar campeonato
-      if (hasChampHistory && champStats.winRate >= 50) {
-        const weight = Math.min(champStats.totalBets / 15, 1);
-        weightedWinRate += champStats.winRate * weight;
-        weightSum += weight;
-        totalRelevantBets += champStats.totalBets;
-
-        if (champStats.winRate >= 55) {
-          reasons.push(
-            `${match.league}: ${formatPercentage(champStats.winRate)} de acerto em ${champStats.totalBets} apostas`
-          );
-        }
-      }
-
-      // Analisar dados da API (forma recente dos times)
+      // Calcular forma recente dos times (dados da API)
       let homeFormScore = 0;
       let awayFormScore = 0;
+      let homeFormWins = 0;
+      let awayFormWins = 0;
+      let homeFormLosses = 0;
+      let awayFormLosses = 0;
 
       if (apiStats?.homeForm && apiStats.homeForm.form.length > 0) {
-        const homeWins = apiStats.homeForm.wins;
+        homeFormWins = apiStats.homeForm.wins;
+        homeFormLosses = apiStats.homeForm.losses;
         const homeTotal = apiStats.homeForm.form.length;
-        homeFormScore = (homeWins / homeTotal) * 100;
-
-        if (homeWins >= 3) {
-          reasons.push(
-            `${match.homeTeam} venceu ${homeWins} dos últimos ${homeTotal} jogos`
-          );
-        } else if (homeWins <= 1 && apiStats.homeForm.losses >= 3) {
-          reasons.push(
-            `⚠️ Atenção: ${match.homeTeam} perdeu ${apiStats.homeForm.losses} dos últimos ${homeTotal} jogos`
-          );
-        }
+        homeFormScore = (homeFormWins / homeTotal) * 100;
       }
 
       if (apiStats?.awayForm && apiStats.awayForm.form.length > 0) {
-        const awayWins = apiStats.awayForm.wins;
+        awayFormWins = apiStats.awayForm.wins;
+        awayFormLosses = apiStats.awayForm.losses;
         const awayTotal = apiStats.awayForm.form.length;
-        awayFormScore = (awayWins / awayTotal) * 100;
+        awayFormScore = (awayFormWins / awayTotal) * 100;
+      }
 
-        if (awayWins >= 3) {
-          reasons.push(
-            `${match.awayTeam} venceu ${awayWins} dos últimos ${awayTotal} jogos`
-          );
-        } else if (awayWins <= 1 && apiStats.awayForm.losses >= 3) {
-          reasons.push(
-            `⚠️ Atenção: ${match.awayTeam} perdeu ${apiStats.awayForm.losses} dos últimos ${awayTotal} jogos`
-          );
+      // ========== DETECTAR CENÁRIO DO JOGO ==========
+
+      // Cenário 1: JOGO EQUILIBRADO - ambos os times têm win rates altos no histórico
+      const bothTeamsGood = teamAWinRate >= 55 && teamBWinRate >= 55;
+      const bothTeamsGreat = teamAWinRate >= 65 && teamBWinRate >= 65;
+
+      // Cenário 2: VANTAGEM CLARA - um time é claramente melhor
+      const historyDiff = Math.abs(teamAWinRate - teamBWinRate);
+      const formDiff = Math.abs(homeFormScore - awayFormScore);
+      const hasClearAdvantage = historyDiff >= 25 || formDiff >= 40;
+
+      // Cenário 3: TIME RUIM vs TIME BOM
+      const teamABad = teamAWinRate < 45 && teamABets >= 3;
+      const teamBBad = teamBWinRate < 45 && teamBBets >= 3;
+      const teamAGood = teamAWinRate >= 60;
+      const teamBGood = teamBWinRate >= 60;
+
+      // ========== CALCULAR CONFIANÇA BASEADA NO CENÁRIO ==========
+
+      let confidence = 0;
+      let suggestedBetType: BetType = 'team_a';
+      let favoredTeam: 'home' | 'away' | 'none' = 'none';
+
+      // CENÁRIO: Jogo muito equilibrado - BAIXA confiança
+      if (bothTeamsGreat) {
+        warnings.push(`⚠️ Jogo equilibrado: ambos têm win rate alto no seu histórico`);
+
+        // Usar forma recente para desempatar
+        if (formDiff >= 30) {
+          if (homeFormScore > awayFormScore) {
+            favoredTeam = 'home';
+            confidence = 50 + (formDiff / 4); // Máx ~60-65%
+            reasons.push(`${match.homeTeam} está em melhor fase (${homeFormWins}V nos últimos jogos)`);
+          } else {
+            favoredTeam = 'away';
+            confidence = 50 + (formDiff / 4);
+            reasons.push(`${match.awayTeam} está em melhor fase (${awayFormWins}V nos últimos jogos)`);
+          }
+        } else {
+          // Forma também equilibrada - confiança muito baixa
+          confidence = 45;
+          warnings.push(`Forma recente também equilibrada - aposta arriscada`);
+        }
+      }
+      // CENÁRIO: Um time bom vs um time ruim - ALTA confiança
+      else if ((teamAGood && teamBBad) || (teamBGood && teamABad)) {
+        if (teamAGood && teamBBad) {
+          favoredTeam = 'home';
+          confidence = 75 + Math.min(historyDiff / 5, 15); // 75-90%
+          reasons.push(`${match.homeTeam}: ${formatPercentage(teamAWinRate)} de acerto em ${teamABets} apostas`);
+          reasons.push(`${match.awayTeam}: apenas ${formatPercentage(teamBWinRate)} em ${teamBBets} apostas`);
+        } else {
+          favoredTeam = 'away';
+          confidence = 75 + Math.min(historyDiff / 5, 15);
+          reasons.push(`${match.awayTeam}: ${formatPercentage(teamBWinRate)} de acerto em ${teamBBets} apostas`);
+          reasons.push(`${match.homeTeam}: apenas ${formatPercentage(teamAWinRate)} em ${teamABets} apostas`);
+        }
+
+        // Verificar se forma recente CONTRADIZ o histórico
+        if (favoredTeam === 'home' && awayFormScore > homeFormScore + 30) {
+          confidence -= 15;
+          warnings.push(`⚠️ MAS ${match.awayTeam} está em boa fase recente (${awayFormWins}V)`);
+        } else if (favoredTeam === 'away' && homeFormScore > awayFormScore + 30) {
+          confidence -= 15;
+          warnings.push(`⚠️ MAS ${match.homeTeam} está em boa fase recente (${homeFormWins}V)`);
+        }
+      }
+      // CENÁRIO: Ambos medianos mas com diferença
+      else if (hasClearAdvantage) {
+        if (teamAWinRate > teamBWinRate) {
+          favoredTeam = 'home';
+          confidence = 55 + Math.min(historyDiff / 3, 20);
+          reasons.push(`${match.homeTeam}: ${formatPercentage(teamAWinRate)} de acerto em ${teamABets} apostas`);
+        } else {
+          favoredTeam = 'away';
+          confidence = 55 + Math.min(historyDiff / 3, 20);
+          reasons.push(`${match.awayTeam}: ${formatPercentage(teamBWinRate)} de acerto em ${teamBBets} apostas`);
+        }
+
+        // Usar forma recente como bônus/penalidade
+        if (favoredTeam === 'home' && homeFormScore >= 60) {
+          confidence += 5;
+          reasons.push(`${match.homeTeam} em boa fase (${homeFormWins}V nos últimos jogos)`);
+        } else if (favoredTeam === 'away' && awayFormScore >= 60) {
+          confidence += 5;
+          reasons.push(`${match.awayTeam} em boa fase (${awayFormWins}V nos últimos jogos)`);
+        }
+      }
+      // CENÁRIO: Só temos dados de forma recente (sem histórico pessoal)
+      else if (!hasTeamAHistory && !hasTeamBHistory && hasApiData) {
+        if (formDiff >= 40) {
+          if (homeFormScore > awayFormScore) {
+            favoredTeam = 'home';
+            confidence = homeFormScore * 0.6; // Máx ~60%
+            reasons.push(`${match.homeTeam} venceu ${homeFormWins} dos últimos jogos`);
+            if (awayFormLosses >= 3) {
+              reasons.push(`${match.awayTeam} perdeu ${awayFormLosses} dos últimos jogos`);
+              confidence += 10;
+            }
+          } else {
+            favoredTeam = 'away';
+            confidence = awayFormScore * 0.6;
+            reasons.push(`${match.awayTeam} venceu ${awayFormWins} dos últimos jogos`);
+            if (homeFormLosses >= 3) {
+              reasons.push(`${match.homeTeam} perdeu ${homeFormLosses} dos últimos jogos`);
+              confidence += 10;
+            }
+          }
+        } else if (homeFormScore >= 60 || awayFormScore >= 60) {
+          warnings.push(`Sem histórico pessoal - usando apenas forma recente`);
+          if (homeFormScore >= awayFormScore) {
+            favoredTeam = 'home';
+            confidence = homeFormScore * 0.5;
+          } else {
+            favoredTeam = 'away';
+            confidence = awayFormScore * 0.5;
+          }
+        }
+      }
+      // CENÁRIO: Só temos histórico com um time
+      else if (hasTeamAHistory && !hasTeamBHistory) {
+        if (teamAWinRate >= 55) {
+          favoredTeam = 'home';
+          confidence = teamAWinRate * 0.8;
+          reasons.push(`${match.homeTeam}: ${formatPercentage(teamAWinRate)} de acerto em ${teamABets} apostas`);
+
+          // Verificar forma do adversário
+          if (awayFormScore >= 70) {
+            confidence -= 15;
+            warnings.push(`⚠️ MAS ${match.awayTeam} está em ótima fase (${awayFormWins}V)`);
+          }
+        }
+      } else if (hasTeamBHistory && !hasTeamAHistory) {
+        if (teamBWinRate >= 55) {
+          favoredTeam = 'away';
+          confidence = teamBWinRate * 0.8;
+          reasons.push(`${match.awayTeam}: ${formatPercentage(teamBWinRate)} de acerto em ${teamBBets} apostas`);
+
+          // Verificar forma do adversário
+          if (homeFormScore >= 70) {
+            confidence -= 15;
+            warnings.push(`⚠️ MAS ${match.homeTeam} está em ótima fase (${homeFormWins}V)`);
+          }
         }
       }
 
-      // Analisar confrontos diretos (H2H)
-      if (apiStats?.h2h && apiStats.h2h.matches > 0) {
+      // ========== ANALISAR H2H (Confrontos Diretos) ==========
+      if (apiStats?.h2h && apiStats.h2h.matches >= 3) {
         const h2h = apiStats.h2h;
-        if (h2h.team1Wins > h2h.team2Wins + 1) {
-          reasons.push(
-            `Histórico de confrontos: ${h2h.team1Name} venceu ${h2h.team1Wins} de ${h2h.matches} jogos`
-          );
-        } else if (h2h.team2Wins > h2h.team1Wins + 1) {
-          reasons.push(
-            `Histórico de confrontos: ${h2h.team2Name} venceu ${h2h.team2Wins} de ${h2h.matches} jogos`
-          );
+        const h2hDiff = Math.abs(h2h.team1Wins - h2h.team2Wins);
+
+        if (h2hDiff >= 2) {
+          const h2hWinner = h2h.team1Wins > h2h.team2Wins ? h2h.team1Name : h2h.team2Name;
+          const h2hWins = Math.max(h2h.team1Wins, h2h.team2Wins);
+
+          reasons.push(`Histórico de confrontos: ${h2hWinner} venceu ${h2hWins} de ${h2h.matches}`);
+
+          // Bônus se H2H confirma nossa análise
+          const h2hFavorsHome = (h2h.team1Wins > h2h.team2Wins && h2h.team1Name === match.homeTeam) ||
+                               (h2h.team2Wins > h2h.team1Wins && h2h.team2Name === match.homeTeam);
+
+          if ((favoredTeam === 'home' && h2hFavorsHome) || (favoredTeam === 'away' && !h2hFavorsHome)) {
+            confidence += 5;
+          } else if (favoredTeam !== 'none') {
+            confidence -= 5;
+            warnings.push(`⚠️ H2H favorece o adversário`);
+          }
         }
       }
 
-      // Ajustar confiança com dados da API
-      if (hasApiData) {
-        // Bonus/penalidade baseado na forma recente
-        const formDiff = homeFormScore - awayFormScore;
+      // ========== ANÁLISE DO CAMPEONATO ==========
+      if (hasChampHistory && champStats.winRate >= 55) {
+        totalRelevantBets += champStats.totalBets;
+        const champWeight = Math.min(champStats.totalBets / 20, 0.15);
+        confidence += champStats.winRate * champWeight;
 
-        // Se você tem bom histórico com time da casa MAS ele está em má fase, reduzir confiança
-        if (hasTeamAHistory && teamAStats.winRate >= 60 && homeFormScore < 40) {
-          weightedWinRate -= 10; // Penalidade por má fase
-          reasons.push(`⚠️ ${match.homeTeam} em má fase recente`);
-        }
-
-        // Se você tem bom histórico com visitante MAS ele está em má fase
-        if (hasTeamBHistory && teamBStats.winRate >= 60 && awayFormScore < 40) {
-          weightedWinRate -= 10;
-          reasons.push(`⚠️ ${match.awayTeam} em má fase recente`);
-        }
-
-        // Bônus se o time está em boa fase E você tem bom histórico
-        if (hasTeamAHistory && teamAStats.winRate >= 55 && homeFormScore >= 60) {
-          weightedWinRate += 5;
-        }
-        if (hasTeamBHistory && teamBStats.winRate >= 55 && awayFormScore >= 60) {
-          weightedWinRate += 5;
+        if (champStats.winRate >= 60) {
+          reasons.push(`${match.league}: ${formatPercentage(champStats.winRate)} de acerto em ${champStats.totalBets} apostas`);
         }
       }
 
-      // Calcular confiança média ponderada
-      let confidence = weightSum > 0 ? weightedWinRate / weightSum : 0;
-
-      // Se não tem histórico mas tem dados da API, usar só os dados da API
-      if (!hasTeamAHistory && !hasTeamBHistory && !hasChampHistory && hasApiData) {
-        confidence = Math.max(homeFormScore, awayFormScore) * 0.7; // Reduzir um pouco pois não tem histórico pessoal
-      }
-
-      // Garantir que confiança está entre 0 e 100
-      confidence = Math.max(0, Math.min(100, confidence));
-
-      // Só sugerir se tivermos confiança mínima e razões
-      if (confidence >= 50 && reasons.length > 0) {
-        // Determinar melhor tipo de aposta baseado no histórico
-        let suggestedBetType: BetType = 'team_a';
-        let bestWinRate = 0;
-
-        // Verificar qual tipo de aposta tem melhor histórico geral
+      // ========== DETERMINAR TIPO DE APOSTA ==========
+      if (favoredTeam === 'home') {
+        suggestedBetType = 'team_a';
+      } else if (favoredTeam === 'away') {
+        suggestedBetType = 'team_b';
+      } else {
+        // Sem favorito claro - sugerir empate ou tipo mais comum do usuário
+        let bestBetType: BetType = 'draw';
+        let bestRate = 0;
         Object.values(historyStats.betTypes).forEach((stat) => {
-          if (stat.totalBets >= 5 && stat.winRate > bestWinRate) {
-            bestWinRate = stat.winRate;
-            suggestedBetType = stat.type;
+          if (stat.totalBets >= 5 && stat.winRate > bestRate) {
+            bestRate = stat.winRate;
+            bestBetType = stat.type;
           }
         });
+        suggestedBetType = bestBetType;
+      }
 
-        // Se time da casa tem win rate muito alto E está em boa forma
-        if (hasTeamAHistory && teamAStats.winRate >= 65 && homeFormScore >= 50) {
-          suggestedBetType = 'team_a';
-          reasons.unshift(`Alta taxa de acerto apostando em jogos do ${match.homeTeam}`);
-        }
-        // Se time visitante tem win rate muito alto E está em boa forma
-        else if (hasTeamBHistory && teamBStats.winRate >= 65 && awayFormScore >= 50) {
-          suggestedBetType = 'team_b';
-          reasons.unshift(`Alta taxa de acerto apostando em jogos do ${match.awayTeam}`);
-        }
-        // Se não tem histórico mas time da casa está muito bem
-        else if (!hasTeamAHistory && !hasTeamBHistory && homeFormScore >= 80) {
-          suggestedBetType = 'team_a';
-        }
-        // Se não tem histórico mas visitante está muito bem
-        else if (!hasTeamAHistory && !hasTeamBHistory && awayFormScore >= 80) {
-          suggestedBetType = 'team_b';
-        }
+      // Garantir limites
+      confidence = Math.max(0, Math.min(100, confidence));
 
+      // Adicionar warnings às reasons (no início)
+      const allReasons = [...warnings, ...reasons];
+
+      // Só sugerir se tivermos confiança mínima e razões
+      if (confidence >= 45 && allReasons.length > 0) {
         const betTypeLabel =
           BET_TYPES.find((t) => t.value === suggestedBetType)?.label || suggestedBetType;
 
         result.push({
           match,
           confidence,
-          reasons,
+          reasons: allReasons,
           suggestedBetType,
           suggestedBetTypeLabel: betTypeLabel,
           teamStats: teamAStats || teamBStats,
