@@ -176,20 +176,29 @@ export function getRateLimitInfo() {
   return rateLimitInfo;
 }
 
-// Buscar últimos jogos de um time
-// Nota: O parâmetro 'last' não está disponível no plano gratuito
-// Usamos intervalo de datas como alternativa
-export async function getTeamLastMatches(teamId: number, last: number = 5): Promise<FootballMatch[]> {
-  // Calcular intervalo de datas (últimos 60 dias para ter jogos suficientes)
-  const today = new Date();
-  const pastDate = new Date();
-  pastDate.setDate(today.getDate() - 60);
+// Calcular a temporada atual de futebol
+// Europa: agosto-maio (season = ano de início)
+// Brasil: março-dezembro (season = ano)
+function getCurrentSeason(): number {
+  const now = new Date();
+  const month = now.getMonth(); // 0-11
+  const year = now.getFullYear();
 
-  const fromDate = pastDate.toISOString().split('T')[0];
-  const toDate = today.toISOString().split('T')[0];
+  // Se estamos entre janeiro e julho, a temporada europeia é do ano anterior
+  // Se estamos entre agosto e dezembro, a temporada é do ano atual
+  if (month < 7) {
+    return year - 1; // Ex: fevereiro 2026 → season 2025 (2025/2026)
+  }
+  return year; // Ex: setembro 2025 → season 2025 (2025/2026)
+}
+
+// Buscar últimos jogos de um time
+// Nota: O plano gratuito requer o parâmetro 'season'
+export async function getTeamLastMatches(teamId: number, last: number = 5): Promise<FootballMatch[]> {
+  const season = getCurrentSeason();
 
   const response = await fetchFootballAPI<FootballMatch>(
-    `/fixtures?team=${teamId}&from=${fromDate}&to=${toDate}`,
+    `/fixtures?team=${teamId}&season=${season}`,
     { ttl: CACHE_TTL_STATIC }
   );
 
@@ -260,11 +269,36 @@ export async function getTeamForm(teamId: number, teamName: string, last: number
 }
 
 // Buscar confrontos diretos entre dois times
+// Nota: O plano gratuito não suporta 'last', usamos as últimas 2 temporadas
 export async function getHeadToHead(teamId1: number, teamId2: number, last: number = 5): Promise<FootballMatch[]> {
-  const response = await fetchFootballAPI<FootballMatch>(`/fixtures/headtohead?h2h=${teamId1}-${teamId2}&last=${last}`, {
-    ttl: CACHE_TTL_STATIC,
-  });
-  return response.response;
+  const currentSeason = getCurrentSeason();
+
+  // Buscar da temporada atual
+  const response = await fetchFootballAPI<FootballMatch>(
+    `/fixtures/headtohead?h2h=${teamId1}-${teamId2}&season=${currentSeason}`,
+    { ttl: CACHE_TTL_STATIC }
+  );
+
+  let matches = response.response;
+
+  // Se não tiver jogos suficientes, buscar temporada anterior também
+  if (matches.length < last) {
+    try {
+      const prevResponse = await fetchFootballAPI<FootballMatch>(
+        `/fixtures/headtohead?h2h=${teamId1}-${teamId2}&season=${currentSeason - 1}`,
+        { ttl: CACHE_TTL_STATIC }
+      );
+      matches = [...matches, ...prevResponse.response];
+    } catch {
+      // Ignorar erro da temporada anterior
+    }
+  }
+
+  // Filtrar apenas jogos finalizados, ordenar por data e limitar
+  return matches
+    .filter((m) => ['FT', 'AET', 'PEN'].includes(m.fixture.status.short))
+    .sort((a, b) => new Date(b.fixture.date).getTime() - new Date(a.fixture.date).getTime())
+    .slice(0, last);
 }
 
 // Análise de confrontos diretos
