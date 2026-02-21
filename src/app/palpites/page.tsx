@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useState, useMemo } from 'react';
+import { useEffect, useState, useMemo, useRef, useCallback } from 'react';
 import { MainLayout } from '@/components/layout/MainLayout';
 import { Card, CardContent, CardHeader } from '@/components/ui/Card';
 import { Button } from '@/components/ui/Button';
@@ -100,6 +100,9 @@ function PalpitesContent() {
     return today.toISOString().split('T')[0];
   });
 
+  // Ref para rastrear jogos que já estão sendo carregados (evita chamadas duplicadas)
+  const loadingMatchIdsRef = useRef<Set<number>>(new Set());
+
   const supabase = createClient();
 
   // Carregar histórico de apostas
@@ -141,6 +144,7 @@ function PalpitesContent() {
   const loadMatches = async () => {
     setIsLoadingMatches(true);
     setMatchStats({}); // Limpar stats anteriores
+    loadingMatchIdsRef.current.clear(); // Limpar ref de loading
     try {
       const response = await fetch(`/api/football/fixtures?date=${selectedDate}`);
       const data = await response.json();
@@ -160,19 +164,25 @@ function PalpitesContent() {
   };
 
   // Carregar estatísticas de times para jogos específicos
-  const loadTeamStats = async (matchesToLoad: SimpleMatch[]) => {
-    if (matchesToLoad.length === 0) return;
+  const loadTeamStats = useCallback(async (matchesToLoad: SimpleMatch[]) => {
+    // Filtrar jogos que já estão sendo carregados
+    const newMatchesToLoad = matchesToLoad.filter(
+      (m) => !loadingMatchIdsRef.current.has(m.id)
+    );
+
+    if (newMatchesToLoad.length === 0) return;
 
     setIsLoadingStats(true);
-    const newStats: MatchStats = { ...matchStats };
+
+    // Marcar como "carregando" para evitar chamadas duplicadas
+    newMatchesToLoad.forEach((m) => loadingMatchIdsRef.current.add(m.id));
 
     // Limitar a 5 jogos por vez para economizar requests da API
-    const matchesSlice = matchesToLoad.slice(0, 5);
+    const matchesSlice = newMatchesToLoad.slice(0, 5);
+    const loadedStats: { matchId: number; stats: TeamStatsResponse }[] = [];
 
     await Promise.all(
       matchesSlice.map(async (match) => {
-        if (newStats[match.id]) return; // Já carregou
-
         try {
           const params = new URLSearchParams({
             homeTeamId: match.homeTeamId.toString(),
@@ -186,21 +196,33 @@ function PalpitesContent() {
           const response = await fetch(`/api/football/team-stats?${params}`);
           if (response.ok) {
             const data: TeamStatsResponse = await response.json();
-            newStats[match.id] = data;
+            loadedStats.push({ matchId: match.id, stats: data });
           }
         } catch (error) {
           console.error(`Erro ao carregar stats do jogo ${match.id}:`, error);
+          // Remover do ref se falhar para permitir retry
+          loadingMatchIdsRef.current.delete(match.id);
         }
       })
     );
 
-    setMatchStats(newStats);
+    // Usar functional update para evitar stale closure
+    if (loadedStats.length > 0) {
+      setMatchStats((prev) => {
+        const updated = { ...prev };
+        loadedStats.forEach(({ matchId, stats }) => {
+          updated[matchId] = stats;
+        });
+        return updated;
+      });
+    }
+
     setIsLoadingStats(false);
-  };
+  }, []);
 
   // Verificar se um jogo ainda pode ser apostado
   const canBetOn = (match: SimpleMatch) => {
-    return match.status === 'NS' || match.status === 'TBD';
+    return match.statusShort === 'NS' || match.statusShort === 'TBD';
   };
 
   // Calcular estatísticas do histórico
@@ -566,9 +588,13 @@ function PalpitesContent() {
     // Ligas principais para priorizar
     const mainLeagueIds = [71, 72, 73, 39, 140, 135, 78, 61, 2, 3, 13, 11];
 
-    // Filtrar jogos que ainda não têm stats e têm IDs de times
+    // Filtrar jogos que ainda não têm stats, não estão sendo carregados, e têm IDs de times
     const matchesWithoutStats = matches.filter(
-      (m) => !matchStats[m.id] && m.homeTeamId && m.awayTeamId
+      (m) =>
+        !matchStats[m.id] &&
+        !loadingMatchIdsRef.current.has(m.id) &&
+        m.homeTeamId &&
+        m.awayTeamId
     );
 
     if (matchesWithoutStats.length === 0) return;
@@ -582,7 +608,7 @@ function PalpitesContent() {
     if (prioritized.length > 0) {
       loadTeamStats(prioritized);
     }
-  }, [matches, Object.keys(matchStats).length]);
+  }, [matches, matchStats, isLoadingStats, loadTeamStats]);
 
   // Estatísticas gerais do dia
   const dayStats = useMemo(() => {
@@ -780,7 +806,7 @@ function PalpitesContent() {
                         </span>
                       ) : (
                         <span className="px-2 py-0.5 bg-gray-700 text-gray-400 rounded-full text-[10px] font-medium">
-                          {suggestion.match.status === 'FT' ? 'Encerrado' : 'Em andamento'}
+                          {suggestion.match.statusShort === 'FT' ? 'Encerrado' : 'Em andamento'}
                         </span>
                       )}
                     </div>
@@ -826,7 +852,8 @@ function PalpitesContent() {
                 </div>
 
                 {/* Forma recente dos times (dados da API) */}
-                {(suggestion.homeForm || suggestion.awayForm) && (
+                {((suggestion.homeForm && suggestion.homeForm.form.length > 0) ||
+                  (suggestion.awayForm && suggestion.awayForm.form.length > 0)) && (
                   <div className="mt-4 pt-4 border-t border-gray-800">
                     <div className="flex items-center gap-2 mb-3">
                       <TrendingUp className="w-4 h-4 text-blue-400" />
@@ -838,10 +865,10 @@ function PalpitesContent() {
                       )}
                     </div>
                     <div className="space-y-2">
-                      {suggestion.homeForm && (
+                      {suggestion.homeForm && suggestion.homeForm.form.length > 0 && (
                         <FormDisplay form={suggestion.homeForm} teamName={suggestion.match.homeTeam} />
                       )}
-                      {suggestion.awayForm && (
+                      {suggestion.awayForm && suggestion.awayForm.form.length > 0 && (
                         <FormDisplay form={suggestion.awayForm} teamName={suggestion.match.awayTeam} />
                       )}
                     </div>
