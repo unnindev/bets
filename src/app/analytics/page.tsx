@@ -24,6 +24,10 @@ import {
   ChevronUp,
   Landmark,
   Percent,
+  Lightbulb,
+  Flame,
+  Zap,
+  ArrowRight,
 } from 'lucide-react';
 import {
   BarChart,
@@ -37,7 +41,12 @@ import {
   Pie,
   Cell,
   Legend,
+  LineChart,
+  Line,
+  Area,
+  AreaChart,
 } from 'recharts';
+import Link from 'next/link';
 import { useWallet } from '@/contexts/WalletContext';
 import type { Bet, CombinedBet, CombinedBetItem } from '@/types';
 
@@ -129,6 +138,7 @@ function AnalyticsContent() {
   const [selectedBetType, setSelectedBetType] = useState<string>('all');
   const [dateFrom, setDateFrom] = useState<string>('');
   const [dateTo, setDateTo] = useState<string>('');
+  const [quickPeriod, setQuickPeriod] = useState<string>('all');
 
   // Seções colapsáveis
   const [showTeamStats, setShowTeamStats] = useState(true);
@@ -614,12 +624,115 @@ function AnalyticsContent() {
     ].filter((d) => d.value > 0);
   }, [generalStats]);
 
+  // Evolução do lucro ao longo do tempo
+  const profitEvolution = useMemo(() => {
+    const allBetsWithDates = [
+      ...filteredData.bets
+        .filter((b) => b.result !== 'pending')
+        .map((b) => ({
+          date: b.match_date,
+          profit: Number(b.return_amount) - Number(b.amount),
+        })),
+      ...filteredData.combined
+        .filter((cb) => cb.result !== 'pending')
+        .map((cb) => ({
+          date: cb.match_date,
+          profit: Number(cb.return_amount) - Number(cb.amount),
+        })),
+    ].sort((a, b) => a.date.localeCompare(b.date));
+
+    // Agrupar por data e acumular
+    const byDate: Record<string, number> = {};
+    let cumulative = 0;
+
+    allBetsWithDates.forEach(({ date, profit }) => {
+      cumulative += profit;
+      byDate[date] = cumulative;
+    });
+
+    return Object.entries(byDate)
+      .map(([date, profit]) => ({
+        date: new Date(date + 'T12:00:00').toLocaleDateString('pt-BR', {
+          day: '2-digit',
+          month: '2-digit',
+        }),
+        fullDate: date,
+        profit,
+      }))
+      .slice(-30); // Últimos 30 pontos para não sobrecarregar o gráfico
+  }, [filteredData]);
+
+  // Calcular streak atual (sequência de vitórias ou derrotas)
+  const currentStreak = useMemo(() => {
+    const allResults = [
+      ...filteredData.bets
+        .filter((b) => b.result !== 'pending')
+        .map((b) => ({ date: b.match_date, result: b.result })),
+      ...filteredData.combined
+        .filter((cb) => cb.result !== 'pending')
+        .map((cb) => ({ date: cb.match_date, result: cb.result })),
+    ].sort((a, b) => b.date.localeCompare(a.date)); // Mais recente primeiro
+
+    if (allResults.length === 0) return { type: 'none', count: 0 };
+
+    const lastResult = allResults[0].result;
+    let count = 0;
+
+    for (const { result } of allResults) {
+      if (result === lastResult) {
+        count++;
+      } else {
+        break;
+      }
+    }
+
+    return { type: lastResult, count };
+  }, [filteredData]);
+
+  // Melhor e pior tipo de aposta
+  const bestAndWorstBetType = useMemo(() => {
+    const filtered = betTypeStats.filter((s) => s.totalBets >= 3);
+    if (filtered.length === 0) return { best: null, worst: null };
+
+    const sorted = [...filtered].sort((a, b) => b.winRate - a.winRate);
+    return {
+      best: sorted[0],
+      worst: sorted[sorted.length - 1],
+    };
+  }, [betTypeStats]);
+
+  // Aplicar filtro rápido de período
+  const applyQuickPeriod = (period: string) => {
+    setQuickPeriod(period);
+    const today = new Date();
+    let fromDate = '';
+
+    switch (period) {
+      case '7d':
+        fromDate = new Date(today.setDate(today.getDate() - 7)).toISOString().split('T')[0];
+        break;
+      case '30d':
+        fromDate = new Date(today.setDate(today.getDate() - 30)).toISOString().split('T')[0];
+        break;
+      case '90d':
+        fromDate = new Date(today.setDate(today.getDate() - 90)).toISOString().split('T')[0];
+        break;
+      case 'all':
+      default:
+        fromDate = '';
+    }
+
+    setDateFrom(fromDate);
+    setDateTo('');
+  };
+
   const clearFilters = () => {
     setSelectedTeam('all');
     setSelectedChampionship('all');
     setSelectedBetType('all');
     setDateFrom('');
     setDateTo('');
+    setQuickPeriod('all');
   };
 
   if (walletLoading || isLoading) {
@@ -634,6 +747,7 @@ function AnalyticsContent() {
     selectedTeam !== 'all' ||
     selectedChampionship !== 'all' ||
     selectedBetType !== 'all' ||
+    quickPeriod !== 'all' ||
     dateFrom ||
     dateTo;
 
@@ -656,6 +770,29 @@ function AnalyticsContent() {
           </div>
         </CardHeader>
         <CardContent>
+          {/* Filtros rápidos de período */}
+          <div className="flex flex-wrap gap-2 mb-4">
+            <span className="text-sm text-gray-400 mr-2">Período:</span>
+            {[
+              { value: 'all', label: 'Todo período' },
+              { value: '7d', label: '7 dias' },
+              { value: '30d', label: '30 dias' },
+              { value: '90d', label: '90 dias' },
+            ].map((period) => (
+              <button
+                key={period.value}
+                onClick={() => applyQuickPeriod(period.value)}
+                className={`px-3 py-1 text-sm rounded-full transition ${
+                  quickPeriod === period.value
+                    ? 'bg-emerald-500 text-white'
+                    : 'bg-gray-800 text-gray-400 hover:bg-gray-700 hover:text-white'
+                }`}
+              >
+                {period.label}
+              </button>
+            ))}
+          </div>
+
           <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-4">
             <Select
               label="Time"
@@ -691,7 +828,10 @@ function AnalyticsContent() {
               <input
                 type="date"
                 value={dateFrom}
-                onChange={(e) => setDateFrom(e.target.value)}
+                onChange={(e) => {
+                  setDateFrom(e.target.value);
+                  setQuickPeriod('custom');
+                }}
                 className="w-full px-3 py-2 bg-gray-800 border border-gray-700 rounded-lg text-white focus:outline-none focus:ring-2 focus:ring-emerald-500"
               />
             </div>
@@ -702,13 +842,71 @@ function AnalyticsContent() {
               <input
                 type="date"
                 value={dateTo}
-                onChange={(e) => setDateTo(e.target.value)}
+                onChange={(e) => {
+                  setDateTo(e.target.value);
+                  setQuickPeriod('custom');
+                }}
                 className="w-full px-3 py-2 bg-gray-800 border border-gray-700 rounded-lg text-white focus:outline-none focus:ring-2 focus:ring-emerald-500"
               />
             </div>
           </div>
         </CardContent>
       </Card>
+
+      {/* Card de Palpites + Streak */}
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+        {/* Link para Palpites */}
+        <Link href="/palpites">
+          <Card className="bg-gradient-to-br from-yellow-500/10 to-orange-500/10 border-yellow-500/30 hover:border-yellow-500/50 transition cursor-pointer">
+            <CardContent className="p-5">
+              <div className="flex items-center justify-between">
+                <div className="flex items-center gap-3">
+                  <div className="p-3 bg-yellow-500/20 rounded-xl">
+                    <Lightbulb className="w-6 h-6 text-yellow-400" />
+                  </div>
+                  <div>
+                    <h3 className="text-lg font-semibold text-white">Ver Palpites do Dia</h3>
+                    <p className="text-sm text-gray-400">
+                      Sugestões baseadas no seu histórico de apostas
+                    </p>
+                  </div>
+                </div>
+                <ArrowRight className="w-5 h-5 text-yellow-400" />
+              </div>
+            </CardContent>
+          </Card>
+        </Link>
+
+        {/* Streak atual */}
+        <Card className={currentStreak.type === 'win' ? 'bg-emerald-500/5 border-emerald-500/20' : currentStreak.type === 'loss' ? 'bg-red-500/5 border-red-500/20' : ''}>
+          <CardContent className="p-5">
+            <div className="flex items-center justify-between">
+              <div className="flex items-center gap-3">
+                <div className={`p-3 rounded-xl ${currentStreak.type === 'win' ? 'bg-emerald-500/20' : currentStreak.type === 'loss' ? 'bg-red-500/20' : 'bg-gray-800'}`}>
+                  {currentStreak.type === 'win' ? (
+                    <Flame className="w-6 h-6 text-emerald-400" />
+                  ) : currentStreak.type === 'loss' ? (
+                    <TrendingDown className="w-6 h-6 text-red-400" />
+                  ) : (
+                    <Zap className="w-6 h-6 text-gray-400" />
+                  )}
+                </div>
+                <div>
+                  <h3 className="text-lg font-semibold text-white">
+                    {currentStreak.type === 'win' ? 'Sequência de Vitórias' : currentStreak.type === 'loss' ? 'Sequência de Derrotas' : 'Nenhuma Sequência'}
+                  </h3>
+                  <p className="text-sm text-gray-400">
+                    {currentStreak.count > 0 ? `${currentStreak.count} apostas consecutivas` : 'Comece a apostar para ver suas sequências'}
+                  </p>
+                </div>
+              </div>
+              <div className={`text-3xl font-bold ${currentStreak.type === 'win' ? 'text-emerald-400' : currentStreak.type === 'loss' ? 'text-red-400' : 'text-gray-500'}`}>
+                {currentStreak.count > 0 ? currentStreak.count : '-'}
+              </div>
+            </div>
+          </CardContent>
+        </Card>
+      </div>
 
       {/* Resumo Geral */}
       <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-4">
@@ -793,6 +991,55 @@ function AnalyticsContent() {
           </CardContent>
         </Card>
       </div>
+
+      {/* Gráfico de Evolução do Lucro */}
+      {profitEvolution.length > 1 && (
+        <Card>
+          <CardHeader>
+            <div className="flex items-center gap-2">
+              <TrendingUp className="w-5 h-5 text-emerald-400" />
+              <h3 className="text-lg font-semibold text-white">Evolução do Lucro</h3>
+            </div>
+          </CardHeader>
+          <CardContent>
+            <div className="h-64">
+              <ResponsiveContainer width="100%" height="100%">
+                <AreaChart data={profitEvolution}>
+                  <defs>
+                    <linearGradient id="colorProfit" x1="0" y1="0" x2="0" y2="1">
+                      <stop offset="5%" stopColor="#10B981" stopOpacity={0.3} />
+                      <stop offset="95%" stopColor="#10B981" stopOpacity={0} />
+                    </linearGradient>
+                    <linearGradient id="colorLoss" x1="0" y1="0" x2="0" y2="1">
+                      <stop offset="5%" stopColor="#EF4444" stopOpacity={0.3} />
+                      <stop offset="95%" stopColor="#EF4444" stopOpacity={0} />
+                    </linearGradient>
+                  </defs>
+                  <CartesianGrid strokeDasharray="3 3" stroke="#374151" />
+                  <XAxis dataKey="date" stroke="#9CA3AF" fontSize={11} />
+                  <YAxis stroke="#9CA3AF" fontSize={12} tickFormatter={(v) => formatCurrency(v)} />
+                  <Tooltip
+                    contentStyle={{
+                      backgroundColor: '#1F2937',
+                      border: '1px solid #374151',
+                      borderRadius: '8px',
+                    }}
+                    formatter={(value) => [formatCurrency(Number(value)), 'Lucro Acumulado']}
+                    labelFormatter={(label) => `Data: ${label}`}
+                  />
+                  <Area
+                    type="monotone"
+                    dataKey="profit"
+                    stroke={profitEvolution[profitEvolution.length - 1]?.profit >= 0 ? '#10B981' : '#EF4444'}
+                    fill={profitEvolution[profitEvolution.length - 1]?.profit >= 0 ? 'url(#colorProfit)' : 'url(#colorLoss)'}
+                    strokeWidth={2}
+                  />
+                </AreaChart>
+              </ResponsiveContainer>
+            </div>
+          </CardContent>
+        </Card>
+      )}
 
       {/* Gráficos de Visão Geral */}
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
