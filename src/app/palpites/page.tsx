@@ -558,15 +558,31 @@ function PalpitesContent() {
     return result.sort((a, b) => b.confidence - a.confidence);
   }, [matches, historyStats, matchStats]);
 
-  // Carregar stats dos jogos com sugestões quando as sugestões mudarem
+  // Carregar stats dos jogos quando os matches são carregados
+  // Priorizar jogos das ligas principais
   useEffect(() => {
-    const suggestionsWithoutStats = suggestions.filter(
-      (s) => !matchStats[s.match.id] && s.match.homeTeamId && s.match.awayTeamId
+    if (matches.length === 0 || isLoadingStats) return;
+
+    // Ligas principais para priorizar
+    const mainLeagueIds = [71, 72, 73, 39, 140, 135, 78, 61, 2, 3, 13, 11];
+
+    // Filtrar jogos que ainda não têm stats e têm IDs de times
+    const matchesWithoutStats = matches.filter(
+      (m) => !matchStats[m.id] && m.homeTeamId && m.awayTeamId
     );
-    if (suggestionsWithoutStats.length > 0) {
-      loadTeamStats(suggestionsWithoutStats.map((s) => s.match));
+
+    if (matchesWithoutStats.length === 0) return;
+
+    // Priorizar jogos das ligas principais, depois outros
+    const prioritized = [
+      ...matchesWithoutStats.filter((m) => mainLeagueIds.includes(m.leagueId)),
+      ...matchesWithoutStats.filter((m) => !mainLeagueIds.includes(m.leagueId)),
+    ].slice(0, 5); // Limitar a 5 jogos
+
+    if (prioritized.length > 0) {
+      loadTeamStats(prioritized);
     }
-  }, [suggestions.length, matches]);
+  }, [matches, Object.keys(matchStats).length]);
 
   // Estatísticas gerais do dia
   const dayStats = useMemo(() => {
