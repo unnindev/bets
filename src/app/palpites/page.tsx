@@ -681,36 +681,10 @@ function PalpitesContent() {
     return result.sort((a, b) => b.confidence - a.confidence);
   }, [matches, historyStats, matchStats]);
 
-  // Carregar stats dos jogos quando os matches são carregados
-  // Priorizar jogos das ligas principais
-  useEffect(() => {
-    if (matches.length === 0 || isLoadingStats || apiDisabled) return;
-
-    // Ligas principais para priorizar
-    const mainLeagueIds = [71, 72, 73, 39, 140, 135, 78, 61, 2, 3, 13, 11];
-
-    // Filtrar jogos que ainda não têm stats, não estão sendo carregados, não falharam, e têm IDs de times
-    const matchesWithoutStats = matches.filter(
-      (m) =>
-        !matchStats[m.id] &&
-        !loadingMatchIdsRef.current.has(m.id) &&
-        !failedMatchIdsRef.current.has(m.id) &&
-        m.homeTeamId &&
-        m.awayTeamId
-    );
-
-    if (matchesWithoutStats.length === 0) return;
-
-    // Priorizar jogos das ligas principais, depois outros
-    const prioritized = [
-      ...matchesWithoutStats.filter((m) => mainLeagueIds.includes(m.leagueId)),
-      ...matchesWithoutStats.filter((m) => !mainLeagueIds.includes(m.leagueId)),
-    ].slice(0, 5); // Limitar a 5 jogos
-
-    if (prioritized.length > 0) {
-      loadTeamStats(prioritized);
-    }
-  }, [matches, matchStats, isLoadingStats, loadTeamStats, apiDisabled]);
+  // NOTA: Stats da API desabilitado - plano gratuito não tem acesso à temporada atual
+  // O sistema funciona com histórico pessoal de apostas do usuário
+  // Para habilitar: assinar plano pago da API-Football (~$20/mês)
+  // useEffect(() => { ... }, [matches, matchStats, isLoadingStats, loadTeamStats, apiDisabled]);
 
   // Estatísticas gerais do dia
   const dayStats = useMemo(() => {
@@ -830,7 +804,7 @@ function PalpitesContent() {
       </div>
 
       {/* Cards de resumo */}
-      <div className="grid grid-cols-1 sm:grid-cols-4 gap-4">
+      <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
         <Card>
           <CardContent className="p-4">
             <div className="flex items-center gap-3">
@@ -874,54 +848,7 @@ function PalpitesContent() {
             </div>
           </CardContent>
         </Card>
-
-        <Card>
-          <CardContent className="p-4">
-            <div className="flex items-center gap-3">
-              <div className={`p-2 rounded-lg ${isLoadingStats ? 'bg-yellow-500/10' : statsError ? 'bg-red-500/10' : Object.keys(matchStats).length > 0 ? 'bg-emerald-500/10' : 'bg-gray-500/10'}`}>
-                <TrendingUp className={`w-5 h-5 ${isLoadingStats ? 'text-yellow-400' : statsError ? 'text-red-400' : Object.keys(matchStats).length > 0 ? 'text-emerald-400' : 'text-gray-400'}`} />
-              </div>
-              <div>
-                <p className="text-xs text-gray-400">Stats Carregados</p>
-                <p className={`text-xl font-bold ${isLoadingStats ? 'text-yellow-400' : statsError ? 'text-red-400' : Object.keys(matchStats).length > 0 ? 'text-emerald-400' : 'text-gray-400'}`}>
-                  {isLoadingStats ? '...' : Object.keys(matchStats).length}
-                </p>
-              </div>
-            </div>
-          </CardContent>
-        </Card>
       </div>
-
-      {/* Erro ao carregar stats */}
-      {statsError && (
-        <div className="bg-red-500/10 border border-red-500/30 rounded-lg p-3">
-          <div className="flex items-start gap-2">
-            <AlertCircle className="w-4 h-4 text-red-400 flex-shrink-0 mt-0.5" />
-            <div>
-              <p className="text-sm font-medium text-red-400">
-                {apiDisabled ? 'API de estatísticas desabilitada' : 'Erro ao carregar estatísticas'}
-              </p>
-              <p className="text-xs text-red-300/70 mt-1">{statsError}</p>
-              {apiDisabled && (
-                <p className="text-xs text-gray-400 mt-2">
-                  Verifique se a FOOTBALL_API_KEY está configurada corretamente no Vercel.
-                </p>
-              )}
-            </div>
-          </div>
-        </div>
-      )}
-
-      {/* Debug: mostrar status detalhado - só quando há stats carregados */}
-      {Object.keys(matchStats).length > 0 && (
-        <div className="bg-blue-500/10 border border-blue-500/30 rounded-lg p-3">
-          <div className="text-xs text-blue-300">
-            <p className="font-medium mb-1">Debug Stats:</p>
-            <p>Jogos com stats: {Object.keys(matchStats).length}</p>
-            <p>Sugestões com form: {suggestions.filter(s => s.homeForm || s.awayForm).length}/{suggestions.length}</p>
-          </div>
-        </div>
-      )}
 
       {/* Lista de Sugestões */}
       {isLoading ? (
@@ -999,30 +926,6 @@ function PalpitesContent() {
                     </div>
                   </div>
                 </div>
-
-                {/* Forma recente dos times (dados da API) */}
-                {((suggestion.homeForm && suggestion.homeForm.form.length > 0) ||
-                  (suggestion.awayForm && suggestion.awayForm.form.length > 0)) && (
-                  <div className="mt-4 pt-4 border-t border-gray-800">
-                    <div className="flex items-center gap-2 mb-3">
-                      <TrendingUp className="w-4 h-4 text-blue-400" />
-                      <span className="text-xs font-medium text-gray-300">
-                        Forma Recente (últimos 5 jogos)
-                      </span>
-                      {isLoadingStats && (
-                        <RefreshCw className="w-3 h-3 text-gray-500 animate-spin" />
-                      )}
-                    </div>
-                    <div className="space-y-2">
-                      {suggestion.homeForm && suggestion.homeForm.form.length > 0 && (
-                        <FormDisplay form={suggestion.homeForm} teamName={suggestion.match.homeTeam} />
-                      )}
-                      {suggestion.awayForm && suggestion.awayForm.form.length > 0 && (
-                        <FormDisplay form={suggestion.awayForm} teamName={suggestion.match.awayTeam} />
-                      )}
-                    </div>
-                  </div>
-                )}
 
                 {/* Detalhes do histórico */}
                 <div className="mt-4 pt-4 border-t border-gray-800">
