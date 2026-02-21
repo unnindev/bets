@@ -105,6 +105,8 @@ function PalpitesContent() {
   const loadingMatchIdsRef = useRef<Set<number>>(new Set());
   // Ref para rastrear jogos que falharam (evita retry infinito)
   const failedMatchIdsRef = useRef<Set<number>>(new Set());
+  // Flag para parar de tentar quando a API está com problema sistêmico
+  const [apiDisabled, setApiDisabled] = useState(false);
 
   const supabase = createClient();
 
@@ -147,6 +149,8 @@ function PalpitesContent() {
   const loadMatches = async () => {
     setIsLoadingMatches(true);
     setMatchStats({}); // Limpar stats anteriores
+    setStatsError(null); // Limpar erro
+    setApiDisabled(false); // Reativar API
     loadingMatchIdsRef.current.clear(); // Limpar ref de loading
     failedMatchIdsRef.current.clear(); // Limpar ref de falhas
     try {
@@ -230,7 +234,12 @@ function PalpitesContent() {
     }
 
     if (errors.length > 0) {
-      setStatsError(errors.join('; '));
+      setStatsError(errors[0]); // Mostrar apenas o primeiro erro para clareza
+
+      // Se TODAS as requisições falharam, provavelmente é um problema com a API
+      if (errors.length === matchesSlice.length && loadedStats.length === 0) {
+        setApiDisabled(true);
+      }
     }
 
     setIsLoadingStats(false);
@@ -599,7 +608,7 @@ function PalpitesContent() {
   // Carregar stats dos jogos quando os matches são carregados
   // Priorizar jogos das ligas principais
   useEffect(() => {
-    if (matches.length === 0 || isLoadingStats) return;
+    if (matches.length === 0 || isLoadingStats || apiDisabled) return;
 
     // Ligas principais para priorizar
     const mainLeagueIds = [71, 72, 73, 39, 140, 135, 78, 61, 2, 3, 13, 11];
@@ -625,7 +634,7 @@ function PalpitesContent() {
     if (prioritized.length > 0) {
       loadTeamStats(prioritized);
     }
-  }, [matches, matchStats, isLoadingStats, loadTeamStats]);
+  }, [matches, matchStats, isLoadingStats, loadTeamStats, apiDisabled]);
 
   // Estatísticas gerais do dia
   const dayStats = useMemo(() => {
@@ -813,22 +822,27 @@ function PalpitesContent() {
           <div className="flex items-start gap-2">
             <AlertCircle className="w-4 h-4 text-red-400 flex-shrink-0 mt-0.5" />
             <div>
-              <p className="text-sm font-medium text-red-400">Erro ao carregar estatísticas da API</p>
+              <p className="text-sm font-medium text-red-400">
+                {apiDisabled ? 'API de estatísticas desabilitada' : 'Erro ao carregar estatísticas'}
+              </p>
               <p className="text-xs text-red-300/70 mt-1">{statsError}</p>
+              {apiDisabled && (
+                <p className="text-xs text-gray-400 mt-2">
+                  Verifique se a FOOTBALL_API_KEY está configurada corretamente no Vercel.
+                </p>
+              )}
             </div>
           </div>
         </div>
       )}
 
-      {/* Debug: mostrar status detalhado */}
-      {(Object.keys(matchStats).length > 0 || failedMatchIdsRef.current.size > 0) && (
+      {/* Debug: mostrar status detalhado - só quando há stats carregados */}
+      {Object.keys(matchStats).length > 0 && (
         <div className="bg-blue-500/10 border border-blue-500/30 rounded-lg p-3">
           <div className="text-xs text-blue-300">
             <p className="font-medium mb-1">Debug Stats:</p>
-            <p>Jogos com stats: {Object.keys(matchStats).length} | Falhas: {failedMatchIdsRef.current.size}</p>
+            <p>Jogos com stats: {Object.keys(matchStats).length}</p>
             <p>Sugestões com form: {suggestions.filter(s => s.homeForm || s.awayForm).length}/{suggestions.length}</p>
-            <p>IDs com stats: {Object.keys(matchStats).slice(0, 5).join(', ')}{Object.keys(matchStats).length > 5 ? '...' : ''}</p>
-            <p>IDs das sugestões: {suggestions.slice(0, 5).map(s => s.match.id).join(', ')}{suggestions.length > 5 ? '...' : ''}</p>
           </div>
         </div>
       )}
