@@ -95,6 +95,7 @@ function PalpitesContent() {
   const [isLoadingStats, setIsLoadingStats] = useState(false);
   const [matchStats, setMatchStats] = useState<MatchStats>({});
   const [rateLimit, setRateLimit] = useState<RateLimitInfo | null>(null);
+  const [statsError, setStatsError] = useState<string | null>(null);
   const [selectedDate, setSelectedDate] = useState(() => {
     const today = new Date();
     return today.toISOString().split('T')[0];
@@ -173,6 +174,7 @@ function PalpitesContent() {
     if (newMatchesToLoad.length === 0) return;
 
     setIsLoadingStats(true);
+    setStatsError(null);
 
     // Marcar como "carregando" para evitar chamadas duplicadas
     newMatchesToLoad.forEach((m) => loadingMatchIdsRef.current.add(m.id));
@@ -180,6 +182,7 @@ function PalpitesContent() {
     // Limitar a 5 jogos por vez para economizar requests da API
     const matchesSlice = newMatchesToLoad.slice(0, 5);
     const loadedStats: { matchId: number; stats: TeamStatsResponse }[] = [];
+    const errors: string[] = [];
 
     await Promise.all(
       matchesSlice.map(async (match) => {
@@ -197,10 +200,14 @@ function PalpitesContent() {
           if (response.ok) {
             const data: TeamStatsResponse = await response.json();
             loadedStats.push({ matchId: match.id, stats: data });
+          } else {
+            const errorData = await response.json().catch(() => ({}));
+            errors.push(`${match.homeTeam} vs ${match.awayTeam}: ${errorData.error || response.status}`);
+            loadingMatchIdsRef.current.delete(match.id);
           }
         } catch (error) {
           console.error(`Erro ao carregar stats do jogo ${match.id}:`, error);
-          // Remover do ref se falhar para permitir retry
+          errors.push(`${match.homeTeam} vs ${match.awayTeam}: ${error instanceof Error ? error.message : 'Erro desconhecido'}`);
           loadingMatchIdsRef.current.delete(match.id);
         }
       })
@@ -215,6 +222,10 @@ function PalpitesContent() {
         });
         return updated;
       });
+    }
+
+    if (errors.length > 0) {
+      setStatsError(errors.join('; '));
     }
 
     setIsLoadingStats(false);
@@ -728,7 +739,7 @@ function PalpitesContent() {
       </div>
 
       {/* Cards de resumo */}
-      <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+      <div className="grid grid-cols-1 sm:grid-cols-4 gap-4">
         <Card>
           <CardContent className="p-4">
             <div className="flex items-center gap-3">
@@ -772,7 +783,36 @@ function PalpitesContent() {
             </div>
           </CardContent>
         </Card>
+
+        <Card>
+          <CardContent className="p-4">
+            <div className="flex items-center gap-3">
+              <div className={`p-2 rounded-lg ${isLoadingStats ? 'bg-yellow-500/10' : statsError ? 'bg-red-500/10' : Object.keys(matchStats).length > 0 ? 'bg-emerald-500/10' : 'bg-gray-500/10'}`}>
+                <TrendingUp className={`w-5 h-5 ${isLoadingStats ? 'text-yellow-400' : statsError ? 'text-red-400' : Object.keys(matchStats).length > 0 ? 'text-emerald-400' : 'text-gray-400'}`} />
+              </div>
+              <div>
+                <p className="text-xs text-gray-400">Stats Carregados</p>
+                <p className={`text-xl font-bold ${isLoadingStats ? 'text-yellow-400' : statsError ? 'text-red-400' : Object.keys(matchStats).length > 0 ? 'text-emerald-400' : 'text-gray-400'}`}>
+                  {isLoadingStats ? '...' : Object.keys(matchStats).length}
+                </p>
+              </div>
+            </div>
+          </CardContent>
+        </Card>
       </div>
+
+      {/* Erro ao carregar stats */}
+      {statsError && (
+        <div className="bg-red-500/10 border border-red-500/30 rounded-lg p-3">
+          <div className="flex items-start gap-2">
+            <AlertCircle className="w-4 h-4 text-red-400 flex-shrink-0 mt-0.5" />
+            <div>
+              <p className="text-sm font-medium text-red-400">Erro ao carregar estatísticas da API</p>
+              <p className="text-xs text-red-300/70 mt-1">{statsError}</p>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* Lista de Sugestões */}
       {isLoading ? (
