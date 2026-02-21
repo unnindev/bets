@@ -135,11 +135,8 @@ function PalpitesContent() {
       const data = await response.json();
 
       if (data.success) {
-        // Filtrar apenas jogos não iniciados
-        const scheduledMatches = data.matches.filter(
-          (m: SimpleMatch) => m.status === 'NS' || m.status === 'TBD'
-        );
-        setMatches(scheduledMatches);
+        // Mostrar todos os jogos - a lógica de sugestão vai considerar todos
+        setMatches(data.matches || []);
         if (data.rateLimit) {
           setRateLimit(data.rateLimit);
         }
@@ -149,6 +146,11 @@ function PalpitesContent() {
     } finally {
       setIsLoadingMatches(false);
     }
+  };
+
+  // Verificar se um jogo ainda pode ser apostado
+  const canBetOn = (match: SimpleMatch) => {
+    return match.status === 'NS' || match.status === 'TBD';
   };
 
   // Calcular estatísticas do histórico
@@ -463,15 +465,40 @@ function PalpitesContent() {
         </div>
       </div>
 
-      {/* Rate Limit Indicator */}
-      {rateLimit && (
-        <div className="flex items-center gap-2 text-xs text-gray-500">
-          <Info className="w-3 h-3" />
-          <span>
-            API: {rateLimit.requestsRemaining}/{rateLimit.requestsLimit} requests restantes
+      {/* Atalhos de data */}
+      <div className="flex flex-wrap items-center gap-2">
+        <span className="text-sm text-gray-400">Atalhos:</span>
+        {[
+          { label: 'Hoje', days: 0 },
+          { label: 'Amanhã', days: 1 },
+          { label: 'Em 2 dias', days: 2 },
+          { label: 'Em 3 dias', days: 3 },
+        ].map(({ label, days }) => {
+          const date = new Date();
+          date.setDate(date.getDate() + days);
+          const dateStr = date.toISOString().split('T')[0];
+          const isSelected = selectedDate === dateStr;
+
+          return (
+            <button
+              key={days}
+              onClick={() => setSelectedDate(dateStr)}
+              className={`px-3 py-1 text-sm rounded-full transition ${
+                isSelected
+                  ? 'bg-emerald-500 text-white'
+                  : 'bg-gray-800 text-gray-400 hover:bg-gray-700 hover:text-white'
+              }`}
+            >
+              {label}
+            </button>
+          );
+        })}
+        {rateLimit && (
+          <span className="ml-auto text-xs text-gray-500">
+            API: {rateLimit.requestsRemaining}/{rateLimit.requestsLimit} restantes
           </span>
-        </div>
-      )}
+        )}
+      </div>
 
       {/* Cards de resumo */}
       <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
@@ -541,11 +568,20 @@ function PalpitesContent() {
                 <div className="flex flex-col lg:flex-row lg:items-start gap-4">
                   {/* Informações do jogo */}
                   <div className="flex-1">
-                    <div className="flex items-center gap-2 text-xs text-gray-400 mb-2">
-                      <Clock className="w-3 h-3" />
-                      <span>{suggestion.match.time}</span>
+                    <div className="flex items-center gap-2 text-xs mb-2">
+                      <Clock className="w-3 h-3 text-gray-400" />
+                      <span className="text-gray-400">{suggestion.match.time}</span>
                       <span className="text-gray-600">•</span>
-                      <span>{suggestion.match.league}</span>
+                      <span className="text-gray-400">{suggestion.match.league}</span>
+                      {canBetOn(suggestion.match) ? (
+                        <span className="px-2 py-0.5 bg-emerald-500/20 text-emerald-400 rounded-full text-[10px] font-medium">
+                          Disponível
+                        </span>
+                      ) : (
+                        <span className="px-2 py-0.5 bg-gray-700 text-gray-400 rounded-full text-[10px] font-medium">
+                          {suggestion.match.status === 'FT' ? 'Encerrado' : 'Em andamento'}
+                        </span>
+                      )}
                     </div>
 
                     <div className="flex items-center gap-3 mb-3">
