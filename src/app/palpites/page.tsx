@@ -541,16 +541,19 @@ function PalpitesContent() {
         }
       }
       // CENÁRIO: Ambos medianos mas com diferença
+      // IMPORTANTE: Só sugerir se o time favorecido tem win rate >= 50%
+      // Não faz sentido sugerir um time onde você perde mais do que ganha!
       else if (hasClearAdvantage) {
-        if (teamAWinRate > teamBWinRate) {
+        if (teamAWinRate > teamBWinRate && teamAWinRate >= 50) {
           favoredTeam = 'home';
           confidence = 55 + Math.min(historyDiff / 3, 20);
           reasons.push(`${match.homeTeam}: ${formatPercentage(teamAWinRate)} de acerto em ${teamABets} apostas`);
-        } else {
+        } else if (teamBWinRate > teamAWinRate && teamBWinRate >= 50) {
           favoredTeam = 'away';
           confidence = 55 + Math.min(historyDiff / 3, 20);
           reasons.push(`${match.awayTeam}: ${formatPercentage(teamBWinRate)} de acerto em ${teamBBets} apostas`);
         }
+        // Se nenhum tem win rate >= 50%, não sugerir (favoredTeam permanece 'none')
 
         // Usar forma recente como bônus/penalidade
         if (favoredTeam === 'home' && homeFormScore >= 60) {
