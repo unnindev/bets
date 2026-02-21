@@ -661,9 +661,13 @@ function PalpitesContent() {
         suggestedBetType = 'team_b';
       } else {
         // Sem favorito claro - sugerir empate ou tipo mais comum do usuário
+        // IMPORTANTE: Excluir team_a/team_b pois são estatísticas genéricas
+        // (taxa de acerto em times da casa vs visitante) que não ajudam na decisão
         let bestBetType: BetType = 'draw';
         let bestRate = 0;
         Object.values(historyStats.betTypes).forEach((stat) => {
+          // Ignorar team_a e team_b - são genéricos e confusos
+          if (stat.type === 'team_a' || stat.type === 'team_b') return;
           if (stat.totalBets >= 5 && stat.winRate > bestRate) {
             bestRate = stat.winRate;
             bestBetType = stat.type;
@@ -1001,7 +1005,11 @@ function PalpitesContent() {
                         </div>
                       </div>
                     )}
-                    {suggestion.betTypeStats && suggestion.betTypeStats.totalBets >= 5 && (
+                    {/* Só mostrar estatística de tipo de aposta para tipos específicos,
+                        NÃO para team_a/team_b que são genéricos e confusos */}
+                    {suggestion.betTypeStats &&
+                      suggestion.betTypeStats.totalBets >= 5 &&
+                      !['team_a', 'team_b'].includes(suggestion.suggestedBetType) && (
                       <div className="bg-gray-800/50 rounded-lg p-2">
                         <div className="text-gray-500 mb-1">{suggestion.suggestedBetTypeLabel}</div>
                         <div
