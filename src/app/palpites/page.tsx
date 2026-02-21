@@ -400,10 +400,15 @@ function PalpitesContent() {
       const apiStats = matchStats[match.id];
 
       // Verificar se temos dados relevantes (histórico do usuário OU dados da API)
+      // Mínimo de 3 apostas para análise "forte", mas qualquer histórico é considerado
       const hasTeamAHistory = teamAStats && teamAStats.totalBets >= 3;
       const hasTeamBHistory = teamBStats && teamBStats.totalBets >= 3;
       const hasChampHistory = champStats && champStats.totalBets >= 3;
       const hasApiData = apiStats && (apiStats.homeForm || apiStats.awayForm);
+
+      // Também verificar histórico "fraco" (1-2 apostas) para detectar conflitos
+      const hasAnyTeamAHistory = teamAStats && teamAStats.totalBets >= 1;
+      const hasAnyTeamBHistory = teamBStats && teamBStats.totalBets >= 1;
 
       if (!hasTeamAHistory && !hasTeamBHistory && !hasChampHistory && !hasApiData) {
         return; // Pular jogos sem histórico relevante
@@ -416,12 +421,52 @@ function PalpitesContent() {
       // ========== ANÁLISE INTELIGENTE ==========
       // Em vez de somar win rates, analisamos a DIFERENÇA entre os times
 
-      const teamAWinRate = hasTeamAHistory ? teamAStats.winRate : 0;
-      const teamBWinRate = hasTeamBHistory ? teamBStats.winRate : 0;
-      const teamABets = hasTeamAHistory ? teamAStats.totalBets : 0;
-      const teamBBets = hasTeamBHistory ? teamBStats.totalBets : 0;
+      // Usar win rate mesmo com histórico fraco para detecção de conflitos
+      const teamAWinRate = hasAnyTeamAHistory ? teamAStats.winRate : 0;
+      const teamBWinRate = hasAnyTeamBHistory ? teamBStats.winRate : 0;
+      const teamABets = hasAnyTeamAHistory ? teamAStats.totalBets : 0;
+      const teamBBets = hasAnyTeamBHistory ? teamBStats.totalBets : 0;
 
       totalRelevantBets = teamABets + teamBBets;
+
+      // ========== DETECTAR CONFLITO DE HISTÓRICO ==========
+      // Se AMBOS os times têm win rate alto, isso é conflitante!
+      // Seu histórico bom com ambos não ajuda a decidir quando jogam um contra o outro
+      const bothTeamsHaveGoodHistory = teamAWinRate >= 55 && teamBWinRate >= 55;
+      const bothTeamsHaveGreatHistory = teamAWinRate >= 60 && teamBWinRate >= 60;
+
+      if (bothTeamsHaveGreatHistory) {
+        warnings.push(`⚠️ CONFLITO: Você tem bom histórico com AMBOS os times`);
+        warnings.push(`${match.homeTeam}: ${formatPercentage(teamAWinRate)} em ${teamABets} apostas`);
+        warnings.push(`${match.awayTeam}: ${formatPercentage(teamBWinRate)} em ${teamBBets} apostas`);
+        warnings.push(`Quando jogam um contra o outro, seu histórico não ajuda a decidir`);
+
+        // NÃO sugerir aposta com alta confiança
+        const confidence = Math.max(40, 50 - Math.min(teamAWinRate, teamBWinRate) / 10);
+
+        const betTypeLabel = BET_TYPES.find((t) => t.value === 'draw')?.label || 'Empate';
+
+        result.push({
+          match,
+          confidence,
+          reasons: warnings,
+          suggestedBetType: 'draw', // Sugerir empate ou evitar
+          suggestedBetTypeLabel: betTypeLabel,
+          teamStats: teamAStats || teamBStats,
+          championshipStats: champStats,
+          betTypeStats: historyStats.betTypes['draw'],
+          relevantHistory: {
+            teamAWinRate,
+            teamBWinRate,
+            championshipWinRate: champStats?.winRate,
+            betTypeWinRate: historyStats.betTypes['draw']?.winRate,
+            totalRelevantBets,
+          },
+          homeForm: apiStats?.homeForm,
+          awayForm: apiStats?.awayForm,
+        });
+        return; // Não continuar análise normal
+      }
 
       // Calcular forma recente dos times (dados da API)
       let homeFormScore = 0;
@@ -446,17 +491,14 @@ function PalpitesContent() {
       }
 
       // ========== DETECTAR CENÁRIO DO JOGO ==========
+      // Nota: Conflitos (ambos >= 60%) já foram tratados acima e retornados
 
-      // Cenário 1: JOGO EQUILIBRADO - ambos os times têm win rates altos no histórico
-      const bothTeamsGood = teamAWinRate >= 55 && teamBWinRate >= 55;
-      const bothTeamsGreat = teamAWinRate >= 65 && teamBWinRate >= 65;
-
-      // Cenário 2: VANTAGEM CLARA - um time é claramente melhor
+      // Cenário: VANTAGEM CLARA - um time é claramente melhor
       const historyDiff = Math.abs(teamAWinRate - teamBWinRate);
       const formDiff = Math.abs(homeFormScore - awayFormScore);
       const hasClearAdvantage = historyDiff >= 25 || formDiff >= 40;
 
-      // Cenário 3: TIME RUIM vs TIME BOM
+      // Cenário: TIME RUIM vs TIME BOM
       const teamABad = teamAWinRate < 45 && teamABets >= 3;
       const teamBBad = teamBWinRate < 45 && teamBBets >= 3;
       const teamAGood = teamAWinRate >= 60;
@@ -468,29 +510,15 @@ function PalpitesContent() {
       let suggestedBetType: BetType = 'team_a';
       let favoredTeam: 'home' | 'away' | 'none' = 'none';
 
-      // CENÁRIO: Jogo muito equilibrado - BAIXA confiança
-      if (bothTeamsGreat) {
-        warnings.push(`⚠️ Jogo equilibrado: ambos têm win rate alto no seu histórico`);
-
-        // Usar forma recente para desempatar
-        if (formDiff >= 30) {
-          if (homeFormScore > awayFormScore) {
-            favoredTeam = 'home';
-            confidence = 50 + (formDiff / 4); // Máx ~60-65%
-            reasons.push(`${match.homeTeam} está em melhor fase (${homeFormWins}V nos últimos jogos)`);
-          } else {
-            favoredTeam = 'away';
-            confidence = 50 + (formDiff / 4);
-            reasons.push(`${match.awayTeam} está em melhor fase (${awayFormWins}V nos últimos jogos)`);
-          }
-        } else {
-          // Forma também equilibrada - confiança muito baixa
-          confidence = 45;
-          warnings.push(`Forma recente também equilibrada - aposta arriscada`);
-        }
+      // CENÁRIO: Histórico bom com ambos (mas não conflitante >= 60%)
+      // Se ambos têm 55-60%, avisar mas ainda sugerir baseado na diferença
+      if (bothTeamsHaveGoodHistory && !hasClearAdvantage) {
+        warnings.push(`⚠️ Atenção: Você tem histórico positivo com ambos os times`);
+        // Continuar análise mas com confiança reduzida
       }
+
       // CENÁRIO: Um time bom vs um time ruim - ALTA confiança
-      else if ((teamAGood && teamBBad) || (teamBGood && teamABad)) {
+      if ((teamAGood && teamBBad) || (teamBGood && teamABad)) {
         if (teamAGood && teamBBad) {
           favoredTeam = 'home';
           confidence = 75 + Math.min(historyDiff / 5, 15); // 75-90%
