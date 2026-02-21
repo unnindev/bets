@@ -103,6 +103,8 @@ function PalpitesContent() {
 
   // Ref para rastrear jogos que já estão sendo carregados (evita chamadas duplicadas)
   const loadingMatchIdsRef = useRef<Set<number>>(new Set());
+  // Ref para rastrear jogos que falharam (evita retry infinito)
+  const failedMatchIdsRef = useRef<Set<number>>(new Set());
 
   const supabase = createClient();
 
@@ -146,6 +148,7 @@ function PalpitesContent() {
     setIsLoadingMatches(true);
     setMatchStats({}); // Limpar stats anteriores
     loadingMatchIdsRef.current.clear(); // Limpar ref de loading
+    failedMatchIdsRef.current.clear(); // Limpar ref de falhas
     try {
       const response = await fetch(`/api/football/fixtures?date=${selectedDate}`);
       const data = await response.json();
@@ -203,12 +206,14 @@ function PalpitesContent() {
           } else {
             const errorData = await response.json().catch(() => ({}));
             errors.push(`${match.homeTeam} vs ${match.awayTeam}: ${errorData.error || response.status}`);
-            loadingMatchIdsRef.current.delete(match.id);
+            // Marcar como falhou para não tentar novamente (evita loop infinito)
+            failedMatchIdsRef.current.add(match.id);
           }
         } catch (error) {
           console.error(`Erro ao carregar stats do jogo ${match.id}:`, error);
           errors.push(`${match.homeTeam} vs ${match.awayTeam}: ${error instanceof Error ? error.message : 'Erro desconhecido'}`);
-          loadingMatchIdsRef.current.delete(match.id);
+          // Marcar como falhou para não tentar novamente
+          failedMatchIdsRef.current.add(match.id);
         }
       })
     );
@@ -599,11 +604,12 @@ function PalpitesContent() {
     // Ligas principais para priorizar
     const mainLeagueIds = [71, 72, 73, 39, 140, 135, 78, 61, 2, 3, 13, 11];
 
-    // Filtrar jogos que ainda não têm stats, não estão sendo carregados, e têm IDs de times
+    // Filtrar jogos que ainda não têm stats, não estão sendo carregados, não falharam, e têm IDs de times
     const matchesWithoutStats = matches.filter(
       (m) =>
         !matchStats[m.id] &&
         !loadingMatchIdsRef.current.has(m.id) &&
+        !failedMatchIdsRef.current.has(m.id) &&
         m.homeTeamId &&
         m.awayTeamId
     );
@@ -815,11 +821,11 @@ function PalpitesContent() {
       )}
 
       {/* Debug: mostrar status detalhado */}
-      {Object.keys(matchStats).length > 0 && (
+      {(Object.keys(matchStats).length > 0 || failedMatchIdsRef.current.size > 0) && (
         <div className="bg-blue-500/10 border border-blue-500/30 rounded-lg p-3">
           <div className="text-xs text-blue-300">
             <p className="font-medium mb-1">Debug Stats:</p>
-            <p>Jogos com stats: {Object.keys(matchStats).length}</p>
+            <p>Jogos com stats: {Object.keys(matchStats).length} | Falhas: {failedMatchIdsRef.current.size}</p>
             <p>Sugestões com form: {suggestions.filter(s => s.homeForm || s.awayForm).length}/{suggestions.length}</p>
             <p>IDs com stats: {Object.keys(matchStats).slice(0, 5).join(', ')}{Object.keys(matchStats).length > 5 ? '...' : ''}</p>
             <p>IDs das sugestões: {suggestions.slice(0, 5).map(s => s.match.id).join(', ')}{suggestions.length > 5 ? '...' : ''}</p>
