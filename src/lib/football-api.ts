@@ -10,9 +10,9 @@ let rateLimitInfo = {
   lastUpdated: 0,
 };
 
-// TTL padrão: 5 minutos para jogos, 1 hora para dados estáticos
+// TTL padrão: 5 minutos para jogos, 3 horas para dados estáticos
 const CACHE_TTL_FIXTURES = 5 * 60 * 1000; // 5 minutos
-const CACHE_TTL_STATIC = 60 * 60 * 1000; // 1 hora
+const CACHE_TTL_STATIC = 3 * 60 * 60 * 1000; // 3 horas
 
 interface CacheOptions {
   ttl?: number;
