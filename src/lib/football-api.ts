@@ -177,11 +177,29 @@ export function getRateLimitInfo() {
 }
 
 // Buscar últimos jogos de um time
+// Nota: O parâmetro 'last' não está disponível no plano gratuito
+// Usamos intervalo de datas como alternativa
 export async function getTeamLastMatches(teamId: number, last: number = 5): Promise<FootballMatch[]> {
-  const response = await fetchFootballAPI<FootballMatch>(`/fixtures?team=${teamId}&last=${last}`, {
-    ttl: CACHE_TTL_STATIC, // Cache de 1 hora para histórico
-  });
-  return response.response;
+  // Calcular intervalo de datas (últimos 60 dias para ter jogos suficientes)
+  const today = new Date();
+  const pastDate = new Date();
+  pastDate.setDate(today.getDate() - 60);
+
+  const fromDate = pastDate.toISOString().split('T')[0];
+  const toDate = today.toISOString().split('T')[0];
+
+  const response = await fetchFootballAPI<FootballMatch>(
+    `/fixtures?team=${teamId}&from=${fromDate}&to=${toDate}`,
+    { ttl: CACHE_TTL_STATIC }
+  );
+
+  // Filtrar apenas jogos finalizados e ordenar por data (mais recente primeiro)
+  const finishedMatches = response.response
+    .filter((m) => ['FT', 'AET', 'PEN'].includes(m.fixture.status.short))
+    .sort((a, b) => new Date(b.fixture.date).getTime() - new Date(a.fixture.date).getTime());
+
+  // Retornar apenas os últimos N jogos
+  return finishedMatches.slice(0, last);
 }
 
 // Calcular forma recente de um time baseado nos últimos jogos
