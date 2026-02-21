@@ -86,14 +86,41 @@ export interface SimpleMatch {
   status: string;
   statusShort: string;
   homeTeam: string;
+  homeTeamId: number;
   homeTeamLogo: string;
   awayTeam: string;
+  awayTeamId: number;
   awayTeamLogo: string;
   homeGoals: number | null;
   awayGoals: number | null;
   league: string;
+  leagueId: number;
   leagueLogo: string;
   country: string;
+}
+
+// Forma recente de um time (últimos 5 jogos)
+export interface TeamForm {
+  teamId: number;
+  teamName: string;
+  form: ('W' | 'D' | 'L')[]; // Win, Draw, Loss
+  wins: number;
+  draws: number;
+  losses: number;
+  goalsFor: number;
+  goalsAgainst: number;
+  lastMatches: {
+    opponent: string;
+    result: 'W' | 'D' | 'L';
+    score: string;
+    home: boolean;
+  }[];
+}
+
+// Estatísticas enriquecidas de um jogo
+export interface MatchWithStats extends SimpleMatch {
+  homeForm?: TeamForm;
+  awayForm?: TeamForm;
 }
 
 // Ligas principais para filtro rápido

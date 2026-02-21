@@ -1,4 +1,4 @@
-import type { FootballAPIResponse, FootballMatch, SimpleMatch } from '@/types/football';
+import type { FootballAPIResponse, FootballMatch, SimpleMatch, TeamForm } from '@/types/football';
 
 // Cache em memória com TTL
 const cache = new Map<string, { data: unknown; timestamp: number }>();
@@ -126,12 +126,15 @@ export function toSimpleMatch(match: FootballMatch): SimpleMatch {
     status: match.fixture.status.long,
     statusShort: match.fixture.status.short,
     homeTeam: match.teams.home.name,
+    homeTeamId: match.teams.home.id,
     homeTeamLogo: match.teams.home.logo,
     awayTeam: match.teams.away.name,
+    awayTeamId: match.teams.away.id,
     awayTeamLogo: match.teams.away.logo,
     homeGoals: match.goals.home,
     awayGoals: match.goals.away,
     league: match.league.name,
+    leagueId: match.league.id,
     leagueLogo: match.league.logo,
     country: match.league.country,
   };
@@ -171,4 +174,160 @@ export function getCacheStats(): { size: number; keys: string[] } {
 // Obter informações de rate limit
 export function getRateLimitInfo() {
   return rateLimitInfo;
+}
+
+// Buscar últimos jogos de um time
+export async function getTeamLastMatches(teamId: number, last: number = 5): Promise<FootballMatch[]> {
+  const response = await fetchFootballAPI<FootballMatch>(`/fixtures?team=${teamId}&last=${last}`, {
+    ttl: CACHE_TTL_STATIC, // Cache de 1 hora para histórico
+  });
+  return response.response;
+}
+
+// Calcular forma recente de um time baseado nos últimos jogos
+export function calculateTeamForm(teamId: number, teamName: string, matches: FootballMatch[]): TeamForm {
+  const form: ('W' | 'D' | 'L')[] = [];
+  const lastMatches: TeamForm['lastMatches'] = [];
+  let wins = 0, draws = 0, losses = 0, goalsFor = 0, goalsAgainst = 0;
+
+  for (const match of matches) {
+    const isHome = match.teams.home.id === teamId;
+    const teamGoals = isHome ? match.goals.home : match.goals.away;
+    const opponentGoals = isHome ? match.goals.away : match.goals.home;
+    const opponent = isHome ? match.teams.away.name : match.teams.home.name;
+
+    if (teamGoals === null || opponentGoals === null) continue;
+
+    goalsFor += teamGoals;
+    goalsAgainst += opponentGoals;
+
+    let result: 'W' | 'D' | 'L';
+    if (teamGoals > opponentGoals) {
+      result = 'W';
+      wins++;
+    } else if (teamGoals < opponentGoals) {
+      result = 'L';
+      losses++;
+    } else {
+      result = 'D';
+      draws++;
+    }
+
+    form.push(result);
+    lastMatches.push({
+      opponent,
+      result,
+      score: `${teamGoals}-${opponentGoals}`,
+      home: isHome,
+    });
+  }
+
+  return {
+    teamId,
+    teamName,
+    form,
+    wins,
+    draws,
+    losses,
+    goalsFor,
+    goalsAgainst,
+    lastMatches,
+  };
+}
+
+// Buscar forma de um time (últimos N jogos)
+export async function getTeamForm(teamId: number, teamName: string, last: number = 5): Promise<TeamForm> {
+  const matches = await getTeamLastMatches(teamId, last);
+  return calculateTeamForm(teamId, teamName, matches);
+}
+
+// Buscar confrontos diretos entre dois times
+export async function getHeadToHead(teamId1: number, teamId2: number, last: number = 5): Promise<FootballMatch[]> {
+  const response = await fetchFootballAPI<FootballMatch>(`/fixtures/headtohead?h2h=${teamId1}-${teamId2}&last=${last}`, {
+    ttl: CACHE_TTL_STATIC,
+  });
+  return response.response;
+}
+
+// Análise de confrontos diretos
+export interface H2HAnalysis {
+  team1Id: number;
+  team2Id: number;
+  team1Name: string;
+  team2Name: string;
+  matches: number;
+  team1Wins: number;
+  team2Wins: number;
+  draws: number;
+  team1Goals: number;
+  team2Goals: number;
+  lastMatches: {
+    date: string;
+    homeTeam: string;
+    awayTeam: string;
+    score: string;
+    winner: 'home' | 'away' | 'draw';
+  }[];
+}
+
+export async function analyzeHeadToHead(
+  teamId1: number,
+  teamName1: string,
+  teamId2: number,
+  teamName2: string,
+  last: number = 5
+): Promise<H2HAnalysis> {
+  const matches = await getHeadToHead(teamId1, teamId2, last);
+
+  let team1Wins = 0, team2Wins = 0, draws = 0;
+  let team1Goals = 0, team2Goals = 0;
+  const lastMatches: H2HAnalysis['lastMatches'] = [];
+
+  for (const match of matches) {
+    const homeGoals = match.goals.home ?? 0;
+    const awayGoals = match.goals.away ?? 0;
+    const homeIsTeam1 = match.teams.home.id === teamId1;
+
+    if (homeIsTeam1) {
+      team1Goals += homeGoals;
+      team2Goals += awayGoals;
+    } else {
+      team1Goals += awayGoals;
+      team2Goals += homeGoals;
+    }
+
+    let winner: 'home' | 'away' | 'draw';
+    if (homeGoals > awayGoals) {
+      winner = 'home';
+      if (homeIsTeam1) team1Wins++; else team2Wins++;
+    } else if (awayGoals > homeGoals) {
+      winner = 'away';
+      if (homeIsTeam1) team2Wins++; else team1Wins++;
+    } else {
+      winner = 'draw';
+      draws++;
+    }
+
+    lastMatches.push({
+      date: new Date(match.fixture.date).toISOString().split('T')[0],
+      homeTeam: match.teams.home.name,
+      awayTeam: match.teams.away.name,
+      score: `${homeGoals}-${awayGoals}`,
+      winner,
+    });
+  }
+
+  return {
+    team1Id: teamId1,
+    team2Id: teamId2,
+    team1Name: teamName1,
+    team2Name: teamName2,
+    matches: matches.length,
+    team1Wins,
+    team2Wins,
+    draws,
+    team1Goals,
+    team2Goals,
+    lastMatches,
+  };
 }

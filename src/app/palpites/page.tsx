@@ -23,7 +23,8 @@ import {
 } from 'lucide-react';
 import { useWallet } from '@/contexts/WalletContext';
 import type { Bet, CombinedBet, BetType } from '@/types';
-import type { SimpleMatch } from '@/types/football';
+import type { SimpleMatch, TeamForm } from '@/types/football';
+import type { TeamStatsResponse } from '@/app/api/football/team-stats/route';
 
 interface RateLimitInfo {
   requestsRemaining: number;
@@ -75,6 +76,13 @@ interface Suggestion {
     betTypeWinRate?: number;
     totalRelevantBets: number;
   };
+  // Dados da API
+  homeForm?: TeamForm;
+  awayForm?: TeamForm;
+}
+
+interface MatchStats {
+  [matchId: number]: TeamStatsResponse;
 }
 
 function PalpitesContent() {
@@ -84,6 +92,8 @@ function PalpitesContent() {
   const [combinedBets, setCombinedBets] = useState<CombinedBet[]>([]);
   const [isLoadingMatches, setIsLoadingMatches] = useState(false);
   const [isLoadingHistory, setIsLoadingHistory] = useState(true);
+  const [isLoadingStats, setIsLoadingStats] = useState(false);
+  const [matchStats, setMatchStats] = useState<MatchStats>({});
   const [rateLimit, setRateLimit] = useState<RateLimitInfo | null>(null);
   const [selectedDate, setSelectedDate] = useState(() => {
     const today = new Date();
@@ -130,6 +140,7 @@ function PalpitesContent() {
 
   const loadMatches = async () => {
     setIsLoadingMatches(true);
+    setMatchStats({}); // Limpar stats anteriores
     try {
       const response = await fetch(`/api/football/fixtures?date=${selectedDate}`);
       const data = await response.json();
@@ -146,6 +157,45 @@ function PalpitesContent() {
     } finally {
       setIsLoadingMatches(false);
     }
+  };
+
+  // Carregar estatísticas de times para jogos específicos
+  const loadTeamStats = async (matchesToLoad: SimpleMatch[]) => {
+    if (matchesToLoad.length === 0) return;
+
+    setIsLoadingStats(true);
+    const newStats: MatchStats = { ...matchStats };
+
+    // Limitar a 5 jogos por vez para economizar requests da API
+    const matchesSlice = matchesToLoad.slice(0, 5);
+
+    await Promise.all(
+      matchesSlice.map(async (match) => {
+        if (newStats[match.id]) return; // Já carregou
+
+        try {
+          const params = new URLSearchParams({
+            homeTeamId: match.homeTeamId.toString(),
+            awayTeamId: match.awayTeamId.toString(),
+            homeTeamName: match.homeTeam,
+            awayTeamName: match.awayTeam,
+            h2h: 'true',
+            last: '5',
+          });
+
+          const response = await fetch(`/api/football/team-stats?${params}`);
+          if (response.ok) {
+            const data: TeamStatsResponse = await response.json();
+            newStats[match.id] = data;
+          }
+        } catch (error) {
+          console.error(`Erro ao carregar stats do jogo ${match.id}:`, error);
+        }
+      })
+    );
+
+    setMatchStats(newStats);
+    setIsLoadingStats(false);
   };
 
   // Verificar se um jogo ainda pode ser apostado
@@ -300,13 +350,15 @@ function PalpitesContent() {
       const teamAStats = historyStats.teams[match.homeTeam];
       const teamBStats = historyStats.teams[match.awayTeam];
       const champStats = historyStats.championships[match.league];
+      const apiStats = matchStats[match.id];
 
-      // Verificar se temos dados relevantes
+      // Verificar se temos dados relevantes (histórico do usuário OU dados da API)
       const hasTeamAHistory = teamAStats && teamAStats.totalBets >= 3;
       const hasTeamBHistory = teamBStats && teamBStats.totalBets >= 3;
       const hasChampHistory = champStats && champStats.totalBets >= 3;
+      const hasApiData = apiStats && (apiStats.homeForm || apiStats.awayForm);
 
-      if (!hasTeamAHistory && !hasTeamBHistory && !hasChampHistory) {
+      if (!hasTeamAHistory && !hasTeamBHistory && !hasChampHistory && !hasApiData) {
         return; // Pular jogos sem histórico relevante
       }
 
@@ -315,7 +367,7 @@ function PalpitesContent() {
       let weightedWinRate = 0;
       let weightSum = 0;
 
-      // Analisar time da casa
+      // Analisar time da casa (histórico do usuário)
       if (hasTeamAHistory && teamAStats.winRate >= 50) {
         const weight = Math.min(teamAStats.totalBets / 10, 1);
         weightedWinRate += teamAStats.winRate * weight;
@@ -329,7 +381,7 @@ function PalpitesContent() {
         }
       }
 
-      // Analisar time visitante
+      // Analisar time visitante (histórico do usuário)
       if (hasTeamBHistory && teamBStats.winRate >= 50) {
         const weight = Math.min(teamBStats.totalBets / 10, 1);
         weightedWinRate += teamBStats.winRate * weight;
@@ -357,8 +409,92 @@ function PalpitesContent() {
         }
       }
 
+      // Analisar dados da API (forma recente dos times)
+      let homeFormScore = 0;
+      let awayFormScore = 0;
+
+      if (apiStats?.homeForm && apiStats.homeForm.form.length > 0) {
+        const homeWins = apiStats.homeForm.wins;
+        const homeTotal = apiStats.homeForm.form.length;
+        homeFormScore = (homeWins / homeTotal) * 100;
+
+        if (homeWins >= 3) {
+          reasons.push(
+            `${match.homeTeam} venceu ${homeWins} dos últimos ${homeTotal} jogos`
+          );
+        } else if (homeWins <= 1 && apiStats.homeForm.losses >= 3) {
+          reasons.push(
+            `⚠️ Atenção: ${match.homeTeam} perdeu ${apiStats.homeForm.losses} dos últimos ${homeTotal} jogos`
+          );
+        }
+      }
+
+      if (apiStats?.awayForm && apiStats.awayForm.form.length > 0) {
+        const awayWins = apiStats.awayForm.wins;
+        const awayTotal = apiStats.awayForm.form.length;
+        awayFormScore = (awayWins / awayTotal) * 100;
+
+        if (awayWins >= 3) {
+          reasons.push(
+            `${match.awayTeam} venceu ${awayWins} dos últimos ${awayTotal} jogos`
+          );
+        } else if (awayWins <= 1 && apiStats.awayForm.losses >= 3) {
+          reasons.push(
+            `⚠️ Atenção: ${match.awayTeam} perdeu ${apiStats.awayForm.losses} dos últimos ${awayTotal} jogos`
+          );
+        }
+      }
+
+      // Analisar confrontos diretos (H2H)
+      if (apiStats?.h2h && apiStats.h2h.matches > 0) {
+        const h2h = apiStats.h2h;
+        if (h2h.team1Wins > h2h.team2Wins + 1) {
+          reasons.push(
+            `Histórico de confrontos: ${h2h.team1Name} venceu ${h2h.team1Wins} de ${h2h.matches} jogos`
+          );
+        } else if (h2h.team2Wins > h2h.team1Wins + 1) {
+          reasons.push(
+            `Histórico de confrontos: ${h2h.team2Name} venceu ${h2h.team2Wins} de ${h2h.matches} jogos`
+          );
+        }
+      }
+
+      // Ajustar confiança com dados da API
+      if (hasApiData) {
+        // Bonus/penalidade baseado na forma recente
+        const formDiff = homeFormScore - awayFormScore;
+
+        // Se você tem bom histórico com time da casa MAS ele está em má fase, reduzir confiança
+        if (hasTeamAHistory && teamAStats.winRate >= 60 && homeFormScore < 40) {
+          weightedWinRate -= 10; // Penalidade por má fase
+          reasons.push(`⚠️ ${match.homeTeam} em má fase recente`);
+        }
+
+        // Se você tem bom histórico com visitante MAS ele está em má fase
+        if (hasTeamBHistory && teamBStats.winRate >= 60 && awayFormScore < 40) {
+          weightedWinRate -= 10;
+          reasons.push(`⚠️ ${match.awayTeam} em má fase recente`);
+        }
+
+        // Bônus se o time está em boa fase E você tem bom histórico
+        if (hasTeamAHistory && teamAStats.winRate >= 55 && homeFormScore >= 60) {
+          weightedWinRate += 5;
+        }
+        if (hasTeamBHistory && teamBStats.winRate >= 55 && awayFormScore >= 60) {
+          weightedWinRate += 5;
+        }
+      }
+
       // Calcular confiança média ponderada
-      const confidence = weightSum > 0 ? weightedWinRate / weightSum : 0;
+      let confidence = weightSum > 0 ? weightedWinRate / weightSum : 0;
+
+      // Se não tem histórico mas tem dados da API, usar só os dados da API
+      if (!hasTeamAHistory && !hasTeamBHistory && !hasChampHistory && hasApiData) {
+        confidence = Math.max(homeFormScore, awayFormScore) * 0.7; // Reduzir um pouco pois não tem histórico pessoal
+      }
+
+      // Garantir que confiança está entre 0 e 100
+      confidence = Math.max(0, Math.min(100, confidence));
 
       // Só sugerir se tivermos confiança mínima e razões
       if (confidence >= 50 && reasons.length > 0) {
@@ -374,15 +510,23 @@ function PalpitesContent() {
           }
         });
 
-        // Se time da casa tem win rate muito alto, sugerir vitória dele
-        if (hasTeamAHistory && teamAStats.winRate >= 65) {
+        // Se time da casa tem win rate muito alto E está em boa forma
+        if (hasTeamAHistory && teamAStats.winRate >= 65 && homeFormScore >= 50) {
           suggestedBetType = 'team_a';
           reasons.unshift(`Alta taxa de acerto apostando em jogos do ${match.homeTeam}`);
         }
-        // Se time visitante tem win rate muito alto
-        else if (hasTeamBHistory && teamBStats.winRate >= 65) {
+        // Se time visitante tem win rate muito alto E está em boa forma
+        else if (hasTeamBHistory && teamBStats.winRate >= 65 && awayFormScore >= 50) {
           suggestedBetType = 'team_b';
           reasons.unshift(`Alta taxa de acerto apostando em jogos do ${match.awayTeam}`);
+        }
+        // Se não tem histórico mas time da casa está muito bem
+        else if (!hasTeamAHistory && !hasTeamBHistory && homeFormScore >= 80) {
+          suggestedBetType = 'team_a';
+        }
+        // Se não tem histórico mas visitante está muito bem
+        else if (!hasTeamAHistory && !hasTeamBHistory && awayFormScore >= 80) {
+          suggestedBetType = 'team_b';
         }
 
         const betTypeLabel =
@@ -404,13 +548,25 @@ function PalpitesContent() {
             betTypeWinRate: historyStats.betTypes[suggestedBetType]?.winRate,
             totalRelevantBets,
           },
+          homeForm: apiStats?.homeForm,
+          awayForm: apiStats?.awayForm,
         });
       }
     });
 
     // Ordenar por confiança
     return result.sort((a, b) => b.confidence - a.confidence);
-  }, [matches, historyStats]);
+  }, [matches, historyStats, matchStats]);
+
+  // Carregar stats dos jogos com sugestões quando as sugestões mudarem
+  useEffect(() => {
+    const suggestionsWithoutStats = suggestions.filter(
+      (s) => !matchStats[s.match.id] && s.match.homeTeamId && s.match.awayTeamId
+    );
+    if (suggestionsWithoutStats.length > 0) {
+      loadTeamStats(suggestionsWithoutStats.map((s) => s.match));
+    }
+  }, [suggestions.length, matches]);
 
   // Estatísticas gerais do dia
   const dayStats = useMemo(() => {
@@ -422,6 +578,35 @@ function PalpitesContent() {
   }, [matches, suggestions]);
 
   const isLoading = walletLoading || isLoadingHistory || isLoadingMatches;
+
+  // Componente para mostrar forma recente (W/D/L)
+  const FormDisplay = ({ form, teamName }: { form: TeamForm; teamName: string }) => {
+    const formColors = {
+      W: 'bg-emerald-500',
+      D: 'bg-yellow-500',
+      L: 'bg-red-500',
+    };
+
+    return (
+      <div className="flex items-center gap-2">
+        <span className="text-xs text-gray-500 w-24 truncate">{teamName}</span>
+        <div className="flex gap-0.5">
+          {form.form.map((result, i) => (
+            <div
+              key={i}
+              className={`w-5 h-5 rounded text-[10px] font-bold flex items-center justify-center text-white ${formColors[result]}`}
+              title={result === 'W' ? 'Vitória' : result === 'D' ? 'Empate' : 'Derrota'}
+            >
+              {result}
+            </div>
+          ))}
+        </div>
+        <span className="text-xs text-gray-400">
+          {form.goalsFor}G / {form.goalsAgainst}S
+        </span>
+      </div>
+    );
+  };
 
   const getConfidenceColor = (confidence: number) => {
     if (confidence >= 70) return 'text-emerald-400';
@@ -623,6 +808,29 @@ function PalpitesContent() {
                     </div>
                   </div>
                 </div>
+
+                {/* Forma recente dos times (dados da API) */}
+                {(suggestion.homeForm || suggestion.awayForm) && (
+                  <div className="mt-4 pt-4 border-t border-gray-800">
+                    <div className="flex items-center gap-2 mb-3">
+                      <TrendingUp className="w-4 h-4 text-blue-400" />
+                      <span className="text-xs font-medium text-gray-300">
+                        Forma Recente (últimos 5 jogos)
+                      </span>
+                      {isLoadingStats && (
+                        <RefreshCw className="w-3 h-3 text-gray-500 animate-spin" />
+                      )}
+                    </div>
+                    <div className="space-y-2">
+                      {suggestion.homeForm && (
+                        <FormDisplay form={suggestion.homeForm} teamName={suggestion.match.homeTeam} />
+                      )}
+                      {suggestion.awayForm && (
+                        <FormDisplay form={suggestion.awayForm} teamName={suggestion.match.awayTeam} />
+                      )}
+                    </div>
+                  </div>
+                )}
 
                 {/* Detalhes do histórico */}
                 <div className="mt-4 pt-4 border-t border-gray-800">
