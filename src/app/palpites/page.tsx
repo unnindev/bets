@@ -814,6 +814,19 @@ function PalpitesContent() {
         </div>
       )}
 
+      {/* Debug: mostrar status detalhado */}
+      {Object.keys(matchStats).length > 0 && (
+        <div className="bg-blue-500/10 border border-blue-500/30 rounded-lg p-3">
+          <div className="text-xs text-blue-300">
+            <p className="font-medium mb-1">Debug Stats:</p>
+            <p>Jogos com stats: {Object.keys(matchStats).length}</p>
+            <p>Sugestões com form: {suggestions.filter(s => s.homeForm || s.awayForm).length}/{suggestions.length}</p>
+            <p>IDs com stats: {Object.keys(matchStats).slice(0, 5).join(', ')}{Object.keys(matchStats).length > 5 ? '...' : ''}</p>
+            <p>IDs das sugestões: {suggestions.slice(0, 5).map(s => s.match.id).join(', ')}{suggestions.length > 5 ? '...' : ''}</p>
+          </div>
+        </div>
+      )}
+
       {/* Lista de Sugestões */}
       {isLoading ? (
         <div className="flex items-center justify-center h-64">
