@@ -853,9 +853,9 @@ function AnalyticsContent() {
         </CardContent>
       </Card>
 
-      {/* Card de Palpites + Streak */}
+      {/* Card de Destaques + Streak */}
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
-        {/* Link para Palpites */}
+        {/* Link para Destaques */}
         <Link href="/palpites">
           <Card className="bg-gradient-to-br from-yellow-500/10 to-orange-500/10 border-yellow-500/30 hover:border-yellow-500/50 transition cursor-pointer">
             <CardContent className="p-5">
@@ -865,9 +865,9 @@ function AnalyticsContent() {
                     <Lightbulb className="w-6 h-6 text-yellow-400" />
                   </div>
                   <div>
-                    <h3 className="text-lg font-semibold text-white">Ver Palpites do Dia</h3>
+                    <h3 className="text-lg font-semibold text-white">Ver Destaques do Dia</h3>
                     <p className="text-sm text-gray-400">
-                      Sugestões baseadas no seu histórico de apostas
+                      Jogos com times que você aposta frequentemente
                     </p>
                   </div>
                 </div>

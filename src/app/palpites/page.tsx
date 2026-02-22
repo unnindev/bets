@@ -1,30 +1,25 @@
 'use client';
 
-import { useEffect, useState, useMemo, useRef, useCallback } from 'react';
+import { useEffect, useState, useMemo } from 'react';
 import { MainLayout } from '@/components/layout/MainLayout';
-import { Card, CardContent, CardHeader } from '@/components/ui/Card';
+import { Card, CardContent } from '@/components/ui/Card';
 import { Button } from '@/components/ui/Button';
 import { createClient } from '@/lib/supabase/client';
-import { formatPercentage, BET_TYPES } from '@/lib/constants';
+import { formatPercentage } from '@/lib/constants';
 import {
-  Lightbulb,
-  TrendingUp,
-  TrendingDown,
+  Star,
   AlertCircle,
   RefreshCw,
-  ChevronRight,
-  Target,
   Trophy,
   Users,
   Calendar,
   Clock,
-  Star,
-  Info,
+  TrendingUp,
+  TrendingDown,
 } from 'lucide-react';
 import { useWallet } from '@/contexts/WalletContext';
-import type { Bet, CombinedBet, BetType } from '@/types';
-import type { SimpleMatch, TeamForm } from '@/types/football';
-import type { TeamStatsResponse } from '@/app/api/football/team-stats/route';
+import type { Bet, CombinedBet } from '@/types';
+import type { SimpleMatch } from '@/types/football';
 
 interface RateLimitInfo {
   requestsRemaining: number;
@@ -37,8 +32,6 @@ interface TeamHistory {
   wins: number;
   losses: number;
   winRate: number;
-  bestBetType: string;
-  bestBetTypeWinRate: number;
 }
 
 interface ChampionshipHistory {
@@ -47,66 +40,29 @@ interface ChampionshipHistory {
   wins: number;
   losses: number;
   winRate: number;
-  bestBetType: string;
-  bestBetTypeWinRate: number;
 }
 
-interface BetTypeHistory {
-  type: BetType;
-  label: string;
-  totalBets: number;
-  wins: number;
-  losses: number;
-  winRate: number;
-}
-
-interface Suggestion {
+// Jogo em destaque - tem times que o usuário aposta frequentemente
+interface Highlight {
   match: SimpleMatch;
-  confidence: number;
-  reasons: string[];
-  suggestedBetType: BetType;
-  suggestedBetTypeLabel: string;
-  teamStats?: TeamHistory;
+  homeTeamStats?: TeamHistory;
+  awayTeamStats?: TeamHistory;
   championshipStats?: ChampionshipHistory;
-  betTypeStats?: BetTypeHistory;
-  relevantHistory: {
-    teamAWinRate?: number;
-    teamBWinRate?: number;
-    championshipWinRate?: number;
-    betTypeWinRate?: number;
-    totalRelevantBets: number;
-  };
-  // Dados da API
-  homeForm?: TeamForm;
-  awayForm?: TeamForm;
+  totalBetsWithTeams: number;
 }
 
-interface MatchStats {
-  [matchId: number]: TeamStatsResponse;
-}
-
-function PalpitesContent() {
+function DestaquesContent() {
   const { selectedWalletId, isLoading: walletLoading } = useWallet();
   const [matches, setMatches] = useState<SimpleMatch[]>([]);
   const [bets, setBets] = useState<Bet[]>([]);
   const [combinedBets, setCombinedBets] = useState<CombinedBet[]>([]);
   const [isLoadingMatches, setIsLoadingMatches] = useState(false);
   const [isLoadingHistory, setIsLoadingHistory] = useState(true);
-  const [isLoadingStats, setIsLoadingStats] = useState(false);
-  const [matchStats, setMatchStats] = useState<MatchStats>({});
   const [rateLimit, setRateLimit] = useState<RateLimitInfo | null>(null);
-  const [statsError, setStatsError] = useState<string | null>(null);
   const [selectedDate, setSelectedDate] = useState(() => {
     const today = new Date();
     return today.toISOString().split('T')[0];
   });
-
-  // Ref para rastrear jogos que já estão sendo carregados (evita chamadas duplicadas)
-  const loadingMatchIdsRef = useRef<Set<number>>(new Set());
-  // Ref para rastrear jogos que falharam (evita retry infinito)
-  const failedMatchIdsRef = useRef<Set<number>>(new Set());
-  // Flag para parar de tentar quando a API está com problema sistêmico
-  const [apiDisabled, setApiDisabled] = useState(false);
 
   const supabase = createClient();
 
@@ -124,9 +80,9 @@ function PalpitesContent() {
 
   const loadHistory = async () => {
     if (!selectedWalletId) return;
-
     setIsLoadingHistory(true);
 
+    // Buscar todas as apostas finalizadas da carteira
     const [betsRes, combinedRes] = await Promise.all([
       supabase
         .from('bets')
@@ -148,17 +104,11 @@ function PalpitesContent() {
 
   const loadMatches = async () => {
     setIsLoadingMatches(true);
-    setMatchStats({}); // Limpar stats anteriores
-    setStatsError(null); // Limpar erro
-    setApiDisabled(false); // Reativar API
-    loadingMatchIdsRef.current.clear(); // Limpar ref de loading
-    failedMatchIdsRef.current.clear(); // Limpar ref de falhas
     try {
       const response = await fetch(`/api/football/fixtures?date=${selectedDate}`);
       const data = await response.json();
 
       if (data.success) {
-        // Mostrar todos os jogos - a lógica de sugestão vai considerar todos
         setMatches(data.matches || []);
         if (data.rateLimit) {
           setRateLimit(data.rateLimit);
@@ -171,80 +121,6 @@ function PalpitesContent() {
     }
   };
 
-  // Carregar estatísticas de times para jogos específicos
-  const loadTeamStats = useCallback(async (matchesToLoad: SimpleMatch[]) => {
-    // Filtrar jogos que já estão sendo carregados
-    const newMatchesToLoad = matchesToLoad.filter(
-      (m) => !loadingMatchIdsRef.current.has(m.id)
-    );
-
-    if (newMatchesToLoad.length === 0) return;
-
-    setIsLoadingStats(true);
-    setStatsError(null);
-
-    // Marcar como "carregando" para evitar chamadas duplicadas
-    newMatchesToLoad.forEach((m) => loadingMatchIdsRef.current.add(m.id));
-
-    // Limitar a 5 jogos por vez para economizar requests da API
-    const matchesSlice = newMatchesToLoad.slice(0, 5);
-    const loadedStats: { matchId: number; stats: TeamStatsResponse }[] = [];
-    const errors: string[] = [];
-
-    await Promise.all(
-      matchesSlice.map(async (match) => {
-        try {
-          const params = new URLSearchParams({
-            homeTeamId: match.homeTeamId.toString(),
-            awayTeamId: match.awayTeamId.toString(),
-            homeTeamName: match.homeTeam,
-            awayTeamName: match.awayTeam,
-            h2h: 'true',
-            last: '5',
-          });
-
-          const response = await fetch(`/api/football/team-stats?${params}`);
-          if (response.ok) {
-            const data: TeamStatsResponse = await response.json();
-            loadedStats.push({ matchId: match.id, stats: data });
-          } else {
-            const errorData = await response.json().catch(() => ({}));
-            errors.push(`${match.homeTeam} vs ${match.awayTeam}: ${errorData.error || response.status}`);
-            // Marcar como falhou para não tentar novamente (evita loop infinito)
-            failedMatchIdsRef.current.add(match.id);
-          }
-        } catch (error) {
-          console.error(`Erro ao carregar stats do jogo ${match.id}:`, error);
-          errors.push(`${match.homeTeam} vs ${match.awayTeam}: ${error instanceof Error ? error.message : 'Erro desconhecido'}`);
-          // Marcar como falhou para não tentar novamente
-          failedMatchIdsRef.current.add(match.id);
-        }
-      })
-    );
-
-    // Usar functional update para evitar stale closure
-    if (loadedStats.length > 0) {
-      setMatchStats((prev) => {
-        const updated = { ...prev };
-        loadedStats.forEach(({ matchId, stats }) => {
-          updated[matchId] = stats;
-        });
-        return updated;
-      });
-    }
-
-    if (errors.length > 0) {
-      setStatsError(errors[0]); // Mostrar apenas o primeiro erro para clareza
-
-      // Se TODAS as requisições falharam, provavelmente é um problema com a API
-      if (errors.length === matchesSlice.length && loadedStats.length === 0) {
-        setApiDisabled(true);
-      }
-    }
-
-    setIsLoadingStats(false);
-  }, []);
-
   // Verificar se um jogo ainda pode ser apostado
   const canBetOn = (match: SimpleMatch) => {
     return match.statusShort === 'NS' || match.statusShort === 'TBD';
@@ -254,19 +130,6 @@ function PalpitesContent() {
   const historyStats = useMemo(() => {
     const teamStats: Record<string, TeamHistory> = {};
     const championshipStats: Record<string, ChampionshipHistory> = {};
-    const betTypeStats: Record<string, BetTypeHistory> = {};
-
-    // Inicializar betTypeStats
-    BET_TYPES.forEach(({ value, label }) => {
-      betTypeStats[value] = {
-        type: value as BetType,
-        label,
-        totalBets: 0,
-        wins: 0,
-        losses: 0,
-        winRate: 0,
-      };
-    });
 
     // Processar apostas simples
     bets.forEach((bet) => {
@@ -281,8 +144,6 @@ function PalpitesContent() {
             wins: 0,
             losses: 0,
             winRate: 0,
-            bestBetType: '',
-            bestBetTypeWinRate: 0,
           };
         }
         teamStats[team].totalBets++;
@@ -299,21 +160,11 @@ function PalpitesContent() {
           wins: 0,
           losses: 0,
           winRate: 0,
-          bestBetType: '',
-          bestBetTypeWinRate: 0,
         };
       }
       championshipStats[champ].totalBets++;
       if (isWin) championshipStats[champ].wins++;
       else championshipStats[champ].losses++;
-
-      // Tipo de aposta
-      const betType = bet.bet_type;
-      if (betTypeStats[betType]) {
-        betTypeStats[betType].totalBets++;
-        if (isWin) betTypeStats[betType].wins++;
-        else betTypeStats[betType].losses++;
-      }
     });
 
     // Processar apostas combinadas
@@ -330,8 +181,6 @@ function PalpitesContent() {
               wins: 0,
               losses: 0,
               winRate: 0,
-              bestBetType: '',
-              bestBetTypeWinRate: 0,
             };
           }
           teamStats[team].totalBets++;
@@ -348,439 +197,77 @@ function PalpitesContent() {
             wins: 0,
             losses: 0,
             winRate: 0,
-            bestBetType: '',
-            bestBetTypeWinRate: 0,
           };
         }
         championshipStats[champ].totalBets++;
         if (isWin) championshipStats[champ].wins++;
         else championshipStats[champ].losses++;
-
-        // Tipo de aposta
-        const betType = item.bet_type;
-        if (betTypeStats[betType]) {
-          betTypeStats[betType].totalBets++;
-          if (isWin) betTypeStats[betType].wins++;
-          else betTypeStats[betType].losses++;
-        }
       });
     });
 
     // Calcular win rates
     Object.values(teamStats).forEach((stat) => {
-      const total = stat.wins + stat.losses;
-      stat.winRate = total > 0 ? (stat.wins / total) * 100 : 0;
+      stat.winRate = stat.totalBets > 0 ? (stat.wins / stat.totalBets) * 100 : 0;
     });
 
     Object.values(championshipStats).forEach((stat) => {
-      const total = stat.wins + stat.losses;
-      stat.winRate = total > 0 ? (stat.wins / total) * 100 : 0;
+      stat.winRate = stat.totalBets > 0 ? (stat.wins / stat.totalBets) * 100 : 0;
     });
 
-    Object.values(betTypeStats).forEach((stat) => {
-      const total = stat.wins + stat.losses;
-      stat.winRate = total > 0 ? (stat.wins / total) * 100 : 0;
-    });
-
-    return {
-      teams: teamStats,
-      championships: championshipStats,
-      betTypes: betTypeStats,
-    };
+    return { teams: teamStats, championships: championshipStats };
   }, [bets, combinedBets]);
 
-  // Gerar sugestões baseadas no cruzamento
-  const suggestions = useMemo(() => {
-    const result: Suggestion[] = [];
+  // Filtrar jogos em destaque (que têm times com histórico)
+  const highlights = useMemo(() => {
+    const result: Highlight[] = [];
 
     matches.forEach((match) => {
-      const teamAStats = historyStats.teams[match.homeTeam];
-      const teamBStats = historyStats.teams[match.awayTeam];
+      const homeTeamStats = historyStats.teams[match.homeTeam];
+      const awayTeamStats = historyStats.teams[match.awayTeam];
       const champStats = historyStats.championships[match.league];
-      const apiStats = matchStats[match.id];
 
-      // Verificar se temos dados relevantes (histórico do usuário OU dados da API)
-      // Mínimo de 3 apostas para análise "forte", mas qualquer histórico é considerado
-      const hasTeamAHistory = teamAStats && teamAStats.totalBets >= 3;
-      const hasTeamBHistory = teamBStats && teamBStats.totalBets >= 3;
-      const hasChampHistory = champStats && champStats.totalBets >= 3;
-      const hasApiData = apiStats && (apiStats.homeForm || apiStats.awayForm);
+      // Só mostrar se tiver histórico com pelo menos um time
+      const hasHomeHistory = homeTeamStats && homeTeamStats.totalBets >= 1;
+      const hasAwayHistory = awayTeamStats && awayTeamStats.totalBets >= 1;
 
-      // Também verificar histórico "fraco" (1-2 apostas) para detectar conflitos
-      const hasAnyTeamAHistory = teamAStats && teamAStats.totalBets >= 1;
-      const hasAnyTeamBHistory = teamBStats && teamBStats.totalBets >= 1;
-
-      if (!hasTeamAHistory && !hasTeamBHistory && !hasChampHistory && !hasApiData) {
-        return; // Pular jogos sem histórico relevante
+      if (!hasHomeHistory && !hasAwayHistory) {
+        return; // Pular jogos sem histórico
       }
 
-      const reasons: string[] = [];
-      const warnings: string[] = [];
-      let totalRelevantBets = 0;
+      const totalBetsWithTeams =
+        (homeTeamStats?.totalBets || 0) + (awayTeamStats?.totalBets || 0);
 
-      // ========== ANÁLISE INTELIGENTE ==========
-      // Em vez de somar win rates, analisamos a DIFERENÇA entre os times
-
-      // Usar win rate mesmo com histórico fraco para detecção de conflitos
-      const teamAWinRate = hasAnyTeamAHistory ? teamAStats.winRate : 0;
-      const teamBWinRate = hasAnyTeamBHistory ? teamBStats.winRate : 0;
-      const teamABets = hasAnyTeamAHistory ? teamAStats.totalBets : 0;
-      const teamBBets = hasAnyTeamBHistory ? teamBStats.totalBets : 0;
-
-      totalRelevantBets = teamABets + teamBBets;
-
-      // ========== DETECTAR CONFLITO DE HISTÓRICO ==========
-      // Se AMBOS os times têm win rate alto, isso é conflitante!
-      // Seu histórico bom com ambos não ajuda a decidir quando jogam um contra o outro
-      const bothTeamsHaveGoodHistory = teamAWinRate >= 55 && teamBWinRate >= 55;
-      const bothTeamsHaveGreatHistory = teamAWinRate >= 60 && teamBWinRate >= 60;
-
-      if (bothTeamsHaveGreatHistory) {
-        warnings.push(`⚠️ CONFLITO: Você tem bom histórico com AMBOS os times`);
-        warnings.push(`${match.homeTeam}: ${formatPercentage(teamAWinRate)} em ${teamABets} apostas`);
-        warnings.push(`${match.awayTeam}: ${formatPercentage(teamBWinRate)} em ${teamBBets} apostas`);
-        warnings.push(`Quando jogam um contra o outro, seu histórico não ajuda a decidir`);
-
-        // NÃO sugerir aposta com alta confiança
-        const confidence = Math.max(40, 50 - Math.min(teamAWinRate, teamBWinRate) / 10);
-
-        const betTypeLabel = BET_TYPES.find((t) => t.value === 'draw')?.label || 'Empate';
-
-        result.push({
-          match,
-          confidence,
-          reasons: warnings,
-          suggestedBetType: 'draw', // Sugerir empate ou evitar
-          suggestedBetTypeLabel: betTypeLabel,
-          teamStats: teamAStats || teamBStats,
-          championshipStats: champStats,
-          betTypeStats: historyStats.betTypes['draw'],
-          relevantHistory: {
-            teamAWinRate,
-            teamBWinRate,
-            championshipWinRate: champStats?.winRate,
-            betTypeWinRate: historyStats.betTypes['draw']?.winRate,
-            totalRelevantBets,
-          },
-          homeForm: apiStats?.homeForm,
-          awayForm: apiStats?.awayForm,
-        });
-        return; // Não continuar análise normal
-      }
-
-      // Calcular forma recente dos times (dados da API)
-      let homeFormScore = 0;
-      let awayFormScore = 0;
-      let homeFormWins = 0;
-      let awayFormWins = 0;
-      let homeFormLosses = 0;
-      let awayFormLosses = 0;
-
-      if (apiStats?.homeForm && apiStats.homeForm.form.length > 0) {
-        homeFormWins = apiStats.homeForm.wins;
-        homeFormLosses = apiStats.homeForm.losses;
-        const homeTotal = apiStats.homeForm.form.length;
-        homeFormScore = (homeFormWins / homeTotal) * 100;
-      }
-
-      if (apiStats?.awayForm && apiStats.awayForm.form.length > 0) {
-        awayFormWins = apiStats.awayForm.wins;
-        awayFormLosses = apiStats.awayForm.losses;
-        const awayTotal = apiStats.awayForm.form.length;
-        awayFormScore = (awayFormWins / awayTotal) * 100;
-      }
-
-      // ========== DETECTAR CENÁRIO DO JOGO ==========
-      // Nota: Conflitos (ambos >= 60%) já foram tratados acima e retornados
-
-      // Cenário: VANTAGEM CLARA - um time é claramente melhor
-      const historyDiff = Math.abs(teamAWinRate - teamBWinRate);
-      const formDiff = Math.abs(homeFormScore - awayFormScore);
-      const hasClearAdvantage = historyDiff >= 25 || formDiff >= 40;
-
-      // Cenário: TIME RUIM vs TIME BOM
-      const teamABad = teamAWinRate < 45 && teamABets >= 3;
-      const teamBBad = teamBWinRate < 45 && teamBBets >= 3;
-      const teamAGood = teamAWinRate >= 60;
-      const teamBGood = teamBWinRate >= 60;
-
-      // ========== CALCULAR CONFIANÇA BASEADA NO CENÁRIO ==========
-
-      let confidence = 0;
-      let suggestedBetType: BetType = 'team_a';
-      let favoredTeam: 'home' | 'away' | 'none' = 'none';
-
-      // CENÁRIO: Histórico bom com ambos (mas não conflitante >= 60%)
-      // Se ambos têm 55-60%, avisar mas ainda sugerir baseado na diferença
-      if (bothTeamsHaveGoodHistory && !hasClearAdvantage) {
-        warnings.push(`⚠️ Atenção: Você tem histórico positivo com ambos os times`);
-        // Continuar análise mas com confiança reduzida
-      }
-
-      // CENÁRIO: Um time bom vs um time ruim - ALTA confiança
-      if ((teamAGood && teamBBad) || (teamBGood && teamABad)) {
-        if (teamAGood && teamBBad) {
-          favoredTeam = 'home';
-          confidence = 75 + Math.min(historyDiff / 5, 15); // 75-90%
-          reasons.push(`${match.homeTeam}: ${formatPercentage(teamAWinRate)} de acerto em ${teamABets} apostas`);
-          reasons.push(`${match.awayTeam}: apenas ${formatPercentage(teamBWinRate)} em ${teamBBets} apostas`);
-        } else {
-          favoredTeam = 'away';
-          confidence = 75 + Math.min(historyDiff / 5, 15);
-          reasons.push(`${match.awayTeam}: ${formatPercentage(teamBWinRate)} de acerto em ${teamBBets} apostas`);
-          reasons.push(`${match.homeTeam}: apenas ${formatPercentage(teamAWinRate)} em ${teamABets} apostas`);
-        }
-
-        // Verificar se forma recente CONTRADIZ o histórico
-        if (favoredTeam === 'home' && awayFormScore > homeFormScore + 30) {
-          confidence -= 15;
-          warnings.push(`⚠️ MAS ${match.awayTeam} está em boa fase recente (${awayFormWins}V)`);
-        } else if (favoredTeam === 'away' && homeFormScore > awayFormScore + 30) {
-          confidence -= 15;
-          warnings.push(`⚠️ MAS ${match.homeTeam} está em boa fase recente (${homeFormWins}V)`);
-        }
-      }
-      // CENÁRIO: Ambos medianos mas com diferença
-      // IMPORTANTE: Só sugerir se o time favorecido tem win rate >= 50%
-      // Não faz sentido sugerir um time onde você perde mais do que ganha!
-      else if (hasClearAdvantage) {
-        if (teamAWinRate > teamBWinRate && teamAWinRate >= 50) {
-          favoredTeam = 'home';
-          confidence = 55 + Math.min(historyDiff / 3, 20);
-          reasons.push(`${match.homeTeam}: ${formatPercentage(teamAWinRate)} de acerto em ${teamABets} apostas`);
-        } else if (teamBWinRate > teamAWinRate && teamBWinRate >= 50) {
-          favoredTeam = 'away';
-          confidence = 55 + Math.min(historyDiff / 3, 20);
-          reasons.push(`${match.awayTeam}: ${formatPercentage(teamBWinRate)} de acerto em ${teamBBets} apostas`);
-        }
-        // Se nenhum tem win rate >= 50%, não sugerir (favoredTeam permanece 'none')
-
-        // Usar forma recente como bônus/penalidade
-        if (favoredTeam === 'home' && homeFormScore >= 60) {
-          confidence += 5;
-          reasons.push(`${match.homeTeam} em boa fase (${homeFormWins}V nos últimos jogos)`);
-        } else if (favoredTeam === 'away' && awayFormScore >= 60) {
-          confidence += 5;
-          reasons.push(`${match.awayTeam} em boa fase (${awayFormWins}V nos últimos jogos)`);
-        }
-      }
-      // CENÁRIO: Só temos dados de forma recente (sem histórico pessoal)
-      else if (!hasTeamAHistory && !hasTeamBHistory && hasApiData) {
-        if (formDiff >= 40) {
-          if (homeFormScore > awayFormScore) {
-            favoredTeam = 'home';
-            confidence = homeFormScore * 0.6; // Máx ~60%
-            reasons.push(`${match.homeTeam} venceu ${homeFormWins} dos últimos jogos`);
-            if (awayFormLosses >= 3) {
-              reasons.push(`${match.awayTeam} perdeu ${awayFormLosses} dos últimos jogos`);
-              confidence += 10;
-            }
-          } else {
-            favoredTeam = 'away';
-            confidence = awayFormScore * 0.6;
-            reasons.push(`${match.awayTeam} venceu ${awayFormWins} dos últimos jogos`);
-            if (homeFormLosses >= 3) {
-              reasons.push(`${match.homeTeam} perdeu ${homeFormLosses} dos últimos jogos`);
-              confidence += 10;
-            }
-          }
-        } else if (homeFormScore >= 60 || awayFormScore >= 60) {
-          warnings.push(`Sem histórico pessoal - usando apenas forma recente`);
-          if (homeFormScore >= awayFormScore) {
-            favoredTeam = 'home';
-            confidence = homeFormScore * 0.5;
-          } else {
-            favoredTeam = 'away';
-            confidence = awayFormScore * 0.5;
-          }
-        }
-      }
-      // CENÁRIO: Só temos histórico com um time
-      else if (hasTeamAHistory && !hasTeamBHistory) {
-        if (teamAWinRate >= 55) {
-          favoredTeam = 'home';
-          confidence = teamAWinRate * 0.8;
-          reasons.push(`${match.homeTeam}: ${formatPercentage(teamAWinRate)} de acerto em ${teamABets} apostas`);
-
-          // Verificar forma do adversário
-          if (awayFormScore >= 70) {
-            confidence -= 15;
-            warnings.push(`⚠️ MAS ${match.awayTeam} está em ótima fase (${awayFormWins}V)`);
-          }
-        }
-      } else if (hasTeamBHistory && !hasTeamAHistory) {
-        if (teamBWinRate >= 55) {
-          favoredTeam = 'away';
-          confidence = teamBWinRate * 0.8;
-          reasons.push(`${match.awayTeam}: ${formatPercentage(teamBWinRate)} de acerto em ${teamBBets} apostas`);
-
-          // Verificar forma do adversário
-          if (homeFormScore >= 70) {
-            confidence -= 15;
-            warnings.push(`⚠️ MAS ${match.homeTeam} está em ótima fase (${homeFormWins}V)`);
-          }
-        }
-      }
-
-      // ========== ANALISAR H2H (Confrontos Diretos) ==========
-      if (apiStats?.h2h && apiStats.h2h.matches >= 3) {
-        const h2h = apiStats.h2h;
-        const h2hDiff = Math.abs(h2h.team1Wins - h2h.team2Wins);
-
-        if (h2hDiff >= 2) {
-          const h2hWinner = h2h.team1Wins > h2h.team2Wins ? h2h.team1Name : h2h.team2Name;
-          const h2hWins = Math.max(h2h.team1Wins, h2h.team2Wins);
-
-          reasons.push(`Histórico de confrontos: ${h2hWinner} venceu ${h2hWins} de ${h2h.matches}`);
-
-          // Bônus se H2H confirma nossa análise
-          const h2hFavorsHome = (h2h.team1Wins > h2h.team2Wins && h2h.team1Name === match.homeTeam) ||
-                               (h2h.team2Wins > h2h.team1Wins && h2h.team2Name === match.homeTeam);
-
-          if ((favoredTeam === 'home' && h2hFavorsHome) || (favoredTeam === 'away' && !h2hFavorsHome)) {
-            confidence += 5;
-          } else if (favoredTeam !== 'none') {
-            confidence -= 5;
-            warnings.push(`⚠️ H2H favorece o adversário`);
-          }
-        }
-      }
-
-      // ========== ANÁLISE DO CAMPEONATO ==========
-      if (hasChampHistory && champStats.winRate >= 55) {
-        totalRelevantBets += champStats.totalBets;
-        const champWeight = Math.min(champStats.totalBets / 20, 0.15);
-        confidence += champStats.winRate * champWeight;
-
-        if (champStats.winRate >= 60) {
-          reasons.push(`${match.league}: ${formatPercentage(champStats.winRate)} de acerto em ${champStats.totalBets} apostas`);
-        }
-      }
-
-      // ========== DETERMINAR TIPO DE APOSTA ==========
-      if (favoredTeam === 'home') {
-        suggestedBetType = 'team_a';
-      } else if (favoredTeam === 'away') {
-        suggestedBetType = 'team_b';
-      } else {
-        // Sem favorito claro - sugerir empate ou tipo mais comum do usuário
-        // IMPORTANTE: Excluir team_a/team_b pois são estatísticas genéricas
-        // (taxa de acerto em times da casa vs visitante) que não ajudam na decisão
-        let bestBetType: BetType = 'draw';
-        let bestRate = 0;
-        Object.values(historyStats.betTypes).forEach((stat) => {
-          // Ignorar team_a e team_b - são genéricos e confusos
-          if (stat.type === 'team_a' || stat.type === 'team_b') return;
-          if (stat.totalBets >= 5 && stat.winRate > bestRate) {
-            bestRate = stat.winRate;
-            bestBetType = stat.type;
-          }
-        });
-        suggestedBetType = bestBetType;
-      }
-
-      // Garantir limites
-      confidence = Math.max(0, Math.min(100, confidence));
-
-      // Adicionar warnings às reasons (no início)
-      const allReasons = [...warnings, ...reasons];
-
-      // Só sugerir se tivermos confiança mínima e razões
-      if (confidence >= 45 && allReasons.length > 0) {
-        const betTypeLabel =
-          BET_TYPES.find((t) => t.value === suggestedBetType)?.label || suggestedBetType;
-
-        result.push({
-          match,
-          confidence,
-          reasons: allReasons,
-          suggestedBetType,
-          suggestedBetTypeLabel: betTypeLabel,
-          teamStats: teamAStats || teamBStats,
-          championshipStats: champStats,
-          betTypeStats: historyStats.betTypes[suggestedBetType],
-          relevantHistory: {
-            teamAWinRate: teamAStats?.winRate,
-            teamBWinRate: teamBStats?.winRate,
-            championshipWinRate: champStats?.winRate,
-            betTypeWinRate: historyStats.betTypes[suggestedBetType]?.winRate,
-            totalRelevantBets,
-          },
-          homeForm: apiStats?.homeForm,
-          awayForm: apiStats?.awayForm,
-        });
-      }
+      result.push({
+        match,
+        homeTeamStats: hasHomeHistory ? homeTeamStats : undefined,
+        awayTeamStats: hasAwayHistory ? awayTeamStats : undefined,
+        championshipStats: champStats && champStats.totalBets >= 1 ? champStats : undefined,
+        totalBetsWithTeams,
+      });
     });
 
-    // Ordenar por confiança
-    return result.sort((a, b) => b.confidence - a.confidence);
-  }, [matches, historyStats, matchStats]);
-
-  // NOTA: Stats da API desabilitado - plano gratuito não tem acesso à temporada atual
-  // O sistema funciona com histórico pessoal de apostas do usuário
-  // Para habilitar: assinar plano pago da API-Football (~$20/mês)
-  // useEffect(() => { ... }, [matches, matchStats, isLoadingStats, loadTeamStats, apiDisabled]);
+    // Ordenar por total de apostas com esses times (mais apostados primeiro)
+    return result.sort((a, b) => b.totalBetsWithTeams - a.totalBetsWithTeams);
+  }, [matches, historyStats]);
 
   // Estatísticas gerais do dia
   const dayStats = useMemo(() => {
     return {
       totalMatches: matches.length,
-      matchesWithHistory: suggestions.length,
-      highConfidence: suggestions.filter((s) => s.confidence >= 65).length,
+      highlightedMatches: highlights.length,
     };
-  }, [matches, suggestions]);
+  }, [matches, highlights]);
 
   const isLoading = walletLoading || isLoadingHistory || isLoadingMatches;
-
-  // Componente para mostrar forma recente (W/D/L)
-  const FormDisplay = ({ form, teamName }: { form: TeamForm; teamName: string }) => {
-    const formColors = {
-      W: 'bg-emerald-500',
-      D: 'bg-yellow-500',
-      L: 'bg-red-500',
-    };
-
-    return (
-      <div className="flex items-center gap-2">
-        <span className="text-xs text-gray-500 w-24 truncate">{teamName}</span>
-        <div className="flex gap-0.5">
-          {form.form.map((result, i) => (
-            <div
-              key={i}
-              className={`w-5 h-5 rounded text-[10px] font-bold flex items-center justify-center text-white ${formColors[result]}`}
-              title={result === 'W' ? 'Vitória' : result === 'D' ? 'Empate' : 'Derrota'}
-            >
-              {result}
-            </div>
-          ))}
-        </div>
-        <span className="text-xs text-gray-400">
-          {form.goalsFor}G / {form.goalsAgainst}S
-        </span>
-      </div>
-    );
-  };
-
-  const getConfidenceColor = (confidence: number) => {
-    if (confidence >= 70) return 'text-emerald-400';
-    if (confidence >= 60) return 'text-yellow-400';
-    return 'text-orange-400';
-  };
-
-  const getConfidenceBg = (confidence: number) => {
-    if (confidence >= 70) return 'bg-emerald-500/10 border-emerald-500/30';
-    if (confidence >= 60) return 'bg-yellow-500/10 border-yellow-500/30';
-    return 'bg-orange-500/10 border-orange-500/30';
-  };
 
   return (
     <>
       {/* Header com seletor de data */}
       <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
         <div>
-          <h1 className="text-2xl font-bold text-white">Palpites</h1>
+          <h1 className="text-2xl font-bold text-white">Destaques</h1>
           <p className="text-gray-400">
-            Sugestões baseadas no seu histórico de apostas
+            Jogos do dia com times que você aposta frequentemente
           </p>
         </div>
         <div className="flex items-center gap-3">
@@ -839,7 +326,7 @@ function PalpitesContent() {
       </div>
 
       {/* Cards de resumo */}
-      <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+      <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
         <Card>
           <CardContent className="p-4">
             <div className="flex items-center gap-3">
@@ -857,176 +344,156 @@ function PalpitesContent() {
         <Card>
           <CardContent className="p-4">
             <div className="flex items-center gap-3">
-              <div className="p-2 bg-purple-500/10 rounded-lg">
-                <Users className="w-5 h-5 text-purple-400" />
+              <div className="p-2 bg-yellow-500/10 rounded-lg">
+                <Star className="w-5 h-5 text-yellow-400" />
               </div>
               <div>
-                <p className="text-xs text-gray-400">Com Histórico</p>
-                <p className="text-xl font-bold text-white">{dayStats.matchesWithHistory}</p>
-              </div>
-            </div>
-          </CardContent>
-        </Card>
-
-        <Card>
-          <CardContent className="p-4">
-            <div className="flex items-center gap-3">
-              <div className="p-2 bg-emerald-500/10 rounded-lg">
-                <Star className="w-5 h-5 text-emerald-400" />
-              </div>
-              <div>
-                <p className="text-xs text-gray-400">Alta Confiança</p>
-                <p className="text-xl font-bold text-emerald-400">
-                  {dayStats.highConfidence}
-                </p>
+                <p className="text-xs text-gray-400">Em Destaque</p>
+                <p className="text-xl font-bold text-yellow-400">{dayStats.highlightedMatches}</p>
               </div>
             </div>
           </CardContent>
         </Card>
       </div>
 
-      {/* Lista de Sugestões */}
+      {/* Lista de Destaques */}
       {isLoading ? (
         <div className="flex items-center justify-center h-64">
           <div className="animate-spin rounded-full h-8 w-8 border-t-2 border-b-2 border-emerald-500"></div>
         </div>
-      ) : suggestions.length > 0 ? (
+      ) : highlights.length > 0 ? (
         <div className="space-y-4">
           <h2 className="text-lg font-semibold text-white flex items-center gap-2">
-            <Lightbulb className="w-5 h-5 text-yellow-400" />
-            Sugestões Baseadas no Seu Histórico
+            <Star className="w-5 h-5 text-yellow-400" />
+            Jogos com Times que Você Aposta
           </h2>
 
-          {suggestions.map((suggestion, index) => (
+          {highlights.map((highlight, index) => (
             <Card
-              key={`${suggestion.match.id}-${index}`}
-              className={`border ${getConfidenceBg(suggestion.confidence)}`}
+              key={`${highlight.match.id}-${index}`}
+              className="border border-gray-700 hover:border-gray-600 transition"
             >
               <CardContent className="p-5">
-                <div className="flex flex-col lg:flex-row lg:items-start gap-4">
-                  {/* Informações do jogo */}
-                  <div className="flex-1">
-                    <div className="flex items-center gap-2 text-xs mb-2">
-                      <Clock className="w-3 h-3 text-gray-400" />
-                      <span className="text-gray-400">{suggestion.match.time}</span>
-                      <span className="text-gray-600">•</span>
-                      <span className="text-gray-400">{suggestion.match.league}</span>
-                      {canBetOn(suggestion.match) ? (
-                        <span className="px-2 py-0.5 bg-emerald-500/20 text-emerald-400 rounded-full text-[10px] font-medium">
-                          Disponível
-                        </span>
-                      ) : (
-                        <span className="px-2 py-0.5 bg-gray-700 text-gray-400 rounded-full text-[10px] font-medium">
-                          {suggestion.match.statusShort === 'FT' ? 'Encerrado' : 'Em andamento'}
-                        </span>
-                      )}
-                    </div>
+                {/* Informações do jogo */}
+                <div className="flex items-center gap-2 text-xs mb-3">
+                  <Clock className="w-3 h-3 text-gray-400" />
+                  <span className="text-gray-400">{highlight.match.time}</span>
+                  <span className="text-gray-600">•</span>
+                  <span className="text-gray-400">{highlight.match.league}</span>
+                  {canBetOn(highlight.match) ? (
+                    <span className="px-2 py-0.5 bg-emerald-500/20 text-emerald-400 rounded-full text-[10px] font-medium">
+                      Disponível
+                    </span>
+                  ) : (
+                    <span className="px-2 py-0.5 bg-gray-700 text-gray-400 rounded-full text-[10px] font-medium">
+                      {highlight.match.statusShort === 'FT' ? 'Encerrado' : 'Em andamento'}
+                    </span>
+                  )}
+                </div>
 
-                    <div className="flex items-center gap-3 mb-3">
-                      <span className="text-white font-medium">{suggestion.match.homeTeam}</span>
-                      <span className="text-gray-500">vs</span>
-                      <span className="text-white font-medium">{suggestion.match.awayTeam}</span>
-                    </div>
-
-                    {/* Sugestão de aposta */}
-                    <div className="flex items-center gap-2 mb-3">
-                      <Target className="w-4 h-4 text-emerald-400" />
-                      <span className="text-sm text-gray-300">Sugestão:</span>
-                      <span className="text-sm font-medium text-emerald-400">
-                        {suggestion.suggestedBetTypeLabel}
-                      </span>
-                    </div>
-
-                    {/* Razões */}
-                    <div className="space-y-1.5">
-                      {suggestion.reasons.map((reason, i) => (
-                        <div key={i} className="flex items-start gap-2 text-sm text-gray-400">
-                          <ChevronRight className="w-4 h-4 mt-0.5 text-gray-500 flex-shrink-0" />
-                          <span>{reason}</span>
-                        </div>
-                      ))}
-                    </div>
+                {/* Times */}
+                <div className="flex items-center justify-between mb-4">
+                  <div className="flex items-center gap-3">
+                    <span className="text-white font-medium text-lg">{highlight.match.homeTeam}</span>
+                    <span className="text-gray-500">vs</span>
+                    <span className="text-white font-medium text-lg">{highlight.match.awayTeam}</span>
                   </div>
-
-                  {/* Indicador de confiança */}
-                  <div className="flex flex-col items-center justify-center lg:w-32">
-                    <div
-                      className={`text-3xl font-bold ${getConfidenceColor(suggestion.confidence)}`}
-                    >
-                      {Math.round(suggestion.confidence)}%
-                    </div>
-                    <div className="text-xs text-gray-500 text-center">Confiança</div>
-                    <div className="text-xs text-gray-600 mt-1">
-                      {suggestion.relevantHistory.totalRelevantBets} apostas analisadas
-                    </div>
+                  <div className="text-xs text-gray-500">
+                    {highlight.totalBetsWithTeams} apostas com esses times
                   </div>
                 </div>
 
-                {/* Detalhes do histórico */}
-                <div className="mt-4 pt-4 border-t border-gray-800">
-                  <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 text-xs">
-                    {suggestion.relevantHistory.teamAWinRate !== undefined && (
-                      <div className="bg-gray-800/50 rounded-lg p-2">
-                        <div className="text-gray-500 mb-1">{suggestion.match.homeTeam}</div>
-                        <div
-                          className={
-                            suggestion.relevantHistory.teamAWinRate >= 50
+                {/* Estatísticas dos times */}
+                <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+                  {/* Time da casa */}
+                  {highlight.homeTeamStats && (
+                    <div className="bg-gray-800/50 rounded-lg p-3">
+                      <div className="flex items-center justify-between mb-2">
+                        <span className="text-sm text-gray-400">{highlight.match.homeTeam}</span>
+                        {highlight.homeTeamStats.winRate >= 50 ? (
+                          <TrendingUp className="w-4 h-4 text-emerald-400" />
+                        ) : (
+                          <TrendingDown className="w-4 h-4 text-red-400" />
+                        )}
+                      </div>
+                      <div className="flex items-baseline gap-2">
+                        <span
+                          className={`text-2xl font-bold ${
+                            highlight.homeTeamStats.winRate >= 50
                               ? 'text-emerald-400'
                               : 'text-red-400'
-                          }
+                          }`}
                         >
-                          {formatPercentage(suggestion.relevantHistory.teamAWinRate)} win rate
-                        </div>
+                          {formatPercentage(highlight.homeTeamStats.winRate)}
+                        </span>
+                        <span className="text-xs text-gray-500">win rate</span>
                       </div>
-                    )}
-                    {suggestion.relevantHistory.teamBWinRate !== undefined && (
-                      <div className="bg-gray-800/50 rounded-lg p-2">
-                        <div className="text-gray-500 mb-1">{suggestion.match.awayTeam}</div>
-                        <div
-                          className={
-                            suggestion.relevantHistory.teamBWinRate >= 50
+                      <div className="text-xs text-gray-500 mt-1">
+                        {highlight.homeTeamStats.wins}V / {highlight.homeTeamStats.losses}D em{' '}
+                        {highlight.homeTeamStats.totalBets} apostas
+                      </div>
+                    </div>
+                  )}
+
+                  {/* Time visitante */}
+                  {highlight.awayTeamStats && (
+                    <div className="bg-gray-800/50 rounded-lg p-3">
+                      <div className="flex items-center justify-between mb-2">
+                        <span className="text-sm text-gray-400">{highlight.match.awayTeam}</span>
+                        {highlight.awayTeamStats.winRate >= 50 ? (
+                          <TrendingUp className="w-4 h-4 text-emerald-400" />
+                        ) : (
+                          <TrendingDown className="w-4 h-4 text-red-400" />
+                        )}
+                      </div>
+                      <div className="flex items-baseline gap-2">
+                        <span
+                          className={`text-2xl font-bold ${
+                            highlight.awayTeamStats.winRate >= 50
                               ? 'text-emerald-400'
                               : 'text-red-400'
-                          }
+                          }`}
                         >
-                          {formatPercentage(suggestion.relevantHistory.teamBWinRate)} win rate
-                        </div>
+                          {formatPercentage(highlight.awayTeamStats.winRate)}
+                        </span>
+                        <span className="text-xs text-gray-500">win rate</span>
                       </div>
-                    )}
-                    {suggestion.relevantHistory.championshipWinRate !== undefined && (
-                      <div className="bg-gray-800/50 rounded-lg p-2">
-                        <div className="text-gray-500 mb-1">{suggestion.match.league}</div>
-                        <div
-                          className={
-                            suggestion.relevantHistory.championshipWinRate >= 50
+                      <div className="text-xs text-gray-500 mt-1">
+                        {highlight.awayTeamStats.wins}V / {highlight.awayTeamStats.losses}D em{' '}
+                        {highlight.awayTeamStats.totalBets} apostas
+                      </div>
+                    </div>
+                  )}
+
+                  {/* Campeonato */}
+                  {highlight.championshipStats && (
+                    <div className="bg-gray-800/50 rounded-lg p-3">
+                      <div className="flex items-center justify-between mb-2">
+                        <span className="text-sm text-gray-400">{highlight.match.league}</span>
+                        {highlight.championshipStats.winRate >= 50 ? (
+                          <TrendingUp className="w-4 h-4 text-emerald-400" />
+                        ) : (
+                          <TrendingDown className="w-4 h-4 text-red-400" />
+                        )}
+                      </div>
+                      <div className="flex items-baseline gap-2">
+                        <span
+                          className={`text-2xl font-bold ${
+                            highlight.championshipStats.winRate >= 50
                               ? 'text-emerald-400'
                               : 'text-red-400'
-                          }
+                          }`}
                         >
-                          {formatPercentage(suggestion.relevantHistory.championshipWinRate)} win
-                          rate
-                        </div>
+                          {formatPercentage(highlight.championshipStats.winRate)}
+                        </span>
+                        <span className="text-xs text-gray-500">win rate</span>
                       </div>
-                    )}
-                    {/* Só mostrar estatística de tipo de aposta para tipos específicos,
-                        NÃO para team_a/team_b que são genéricos e confusos */}
-                    {suggestion.betTypeStats &&
-                      suggestion.betTypeStats.totalBets >= 5 &&
-                      !['team_a', 'team_b'].includes(suggestion.suggestedBetType) && (
-                      <div className="bg-gray-800/50 rounded-lg p-2">
-                        <div className="text-gray-500 mb-1">{suggestion.suggestedBetTypeLabel}</div>
-                        <div
-                          className={
-                            suggestion.betTypeStats.winRate >= 50
-                              ? 'text-emerald-400'
-                              : 'text-red-400'
-                          }
-                        >
-                          {formatPercentage(suggestion.betTypeStats.winRate)} win rate
-                        </div>
+                      <div className="text-xs text-gray-500 mt-1">
+                        {highlight.championshipStats.wins}V / {highlight.championshipStats.losses}D em{' '}
+                        {highlight.championshipStats.totalBets} apostas
                       </div>
-                    )}
-                  </div>
+                    </div>
+                  )}
                 </div>
               </CardContent>
             </Card>
@@ -1037,60 +504,24 @@ function PalpitesContent() {
           <CardContent className="p-8 text-center">
             <AlertCircle className="w-12 h-12 text-gray-600 mx-auto mb-4" />
             <h3 className="text-lg font-medium text-white mb-2">
-              Nenhuma sugestão para hoje
+              Nenhum destaque para este dia
             </h3>
             <p className="text-gray-400 max-w-md mx-auto">
-              Não encontramos jogos com histórico relevante no seu perfil de apostas.
-              Continue registrando suas apostas para obter sugestões mais precisas.
+              Não encontramos jogos com times que você costuma apostar.
+              Continue registrando suas apostas para ver mais destaques.
             </p>
           </CardContent>
         </Card>
       ) : (
         <Card>
           <CardContent className="p-8 text-center">
-            <Trophy className="w-12 h-12 text-gray-600 mx-auto mb-4" />
+            <Calendar className="w-12 h-12 text-gray-600 mx-auto mb-4" />
             <h3 className="text-lg font-medium text-white mb-2">
-              Nenhum jogo encontrado
+              Selecione uma data
             </h3>
-            <p className="text-gray-400">
-              Não há jogos agendados para a data selecionada.
+            <p className="text-gray-400 max-w-md mx-auto">
+              Use o seletor de data acima para buscar os jogos do dia.
             </p>
-          </CardContent>
-        </Card>
-      )}
-
-      {/* Disclaimer */}
-      <Card className="bg-gray-800/30 border-gray-700/50">
-        <CardContent className="p-4">
-          <div className="flex items-start gap-3">
-            <AlertCircle className="w-5 h-5 text-yellow-500 flex-shrink-0 mt-0.5" />
-            <div className="text-sm text-gray-400">
-              <p className="font-medium text-gray-300 mb-1">Aviso Importante</p>
-              <p>
-                As sugestões são baseadas exclusivamente no seu histórico de apostas e não
-                garantem resultados. O desempenho passado não é indicativo de resultados
-                futuros. Aposte com responsabilidade.
-              </p>
-            </div>
-          </div>
-        </CardContent>
-      </Card>
-
-      {/* Dicas para melhorar sugestões */}
-      {bets.length + combinedBets.length < 20 && (
-        <Card className="bg-blue-500/5 border-blue-500/20">
-          <CardContent className="p-4">
-            <div className="flex items-start gap-3">
-              <TrendingUp className="w-5 h-5 text-blue-400 flex-shrink-0 mt-0.5" />
-              <div className="text-sm">
-                <p className="font-medium text-blue-300 mb-1">Melhore suas sugestões</p>
-                <p className="text-gray-400">
-                  Você tem {bets.length + combinedBets.length} apostas finalizadas. Com mais
-                  apostas registradas, as sugestões se tornarão mais precisas. Recomendamos ao
-                  menos 20 apostas finalizadas por time/campeonato para análises mais confiáveis.
-                </p>
-              </div>
-            </div>
           </CardContent>
         </Card>
       )}
@@ -1098,11 +529,11 @@ function PalpitesContent() {
   );
 }
 
-export default function PalpitesPage() {
+export default function DestaquesPage() {
   return (
     <MainLayout>
       <div className="space-y-6">
-        <PalpitesContent />
+        <DestaquesContent />
       </div>
     </MainLayout>
   );

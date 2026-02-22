@@ -24,7 +24,7 @@ import { formatCurrency } from '@/lib/constants';
 const navItems = [
   { href: '/dashboard', label: 'Dashboard', icon: LayoutDashboard },
   { href: '/bets', label: 'Apostas', icon: Receipt },
-  { href: '/palpites', label: 'Palpites', icon: Lightbulb },
+  { href: '/palpites', label: 'Destaques', icon: Lightbulb },
   { href: '/analytics', label: 'Análises', icon: BarChart3 },
   { href: '/wallets', label: 'Carteiras', icon: Wallet },
   { href: '/settings', label: 'Configurações', icon: Settings },
