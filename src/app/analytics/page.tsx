@@ -24,10 +24,8 @@ import {
   ChevronUp,
   Landmark,
   Percent,
-  Lightbulb,
   Flame,
   Zap,
-  ArrowRight,
 } from 'lucide-react';
 import {
   BarChart,
@@ -46,7 +44,6 @@ import {
   Area,
   AreaChart,
 } from 'recharts';
-import Link from 'next/link';
 import { useWallet } from '@/contexts/WalletContext';
 import type { Bet, CombinedBet, CombinedBetItem } from '@/types';
 
@@ -853,60 +850,35 @@ function AnalyticsContent() {
         </CardContent>
       </Card>
 
-      {/* Card de Destaques + Streak */}
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
-        {/* Link para Destaques */}
-        <Link href="/palpites">
-          <Card className="bg-gradient-to-br from-yellow-500/10 to-orange-500/10 border-yellow-500/30 hover:border-yellow-500/50 transition cursor-pointer">
-            <CardContent className="p-5">
-              <div className="flex items-center justify-between">
-                <div className="flex items-center gap-3">
-                  <div className="p-3 bg-yellow-500/20 rounded-xl">
-                    <Lightbulb className="w-6 h-6 text-yellow-400" />
-                  </div>
-                  <div>
-                    <h3 className="text-lg font-semibold text-white">Ver Destaques do Dia</h3>
-                    <p className="text-sm text-gray-400">
-                      Jogos com times que você aposta frequentemente
-                    </p>
-                  </div>
-                </div>
-                <ArrowRight className="w-5 h-5 text-yellow-400" />
+      {/* Streak atual */}
+      <Card className={currentStreak.type === 'win' ? 'bg-emerald-500/5 border-emerald-500/20' : currentStreak.type === 'loss' ? 'bg-red-500/5 border-red-500/20' : ''}>
+        <CardContent className="p-5">
+          <div className="flex items-center justify-between">
+            <div className="flex items-center gap-3">
+              <div className={`p-3 rounded-xl ${currentStreak.type === 'win' ? 'bg-emerald-500/20' : currentStreak.type === 'loss' ? 'bg-red-500/20' : 'bg-gray-800'}`}>
+                {currentStreak.type === 'win' ? (
+                  <Flame className="w-6 h-6 text-emerald-400" />
+                ) : currentStreak.type === 'loss' ? (
+                  <TrendingDown className="w-6 h-6 text-red-400" />
+                ) : (
+                  <Zap className="w-6 h-6 text-gray-400" />
+                )}
               </div>
-            </CardContent>
-          </Card>
-        </Link>
-
-        {/* Streak atual */}
-        <Card className={currentStreak.type === 'win' ? 'bg-emerald-500/5 border-emerald-500/20' : currentStreak.type === 'loss' ? 'bg-red-500/5 border-red-500/20' : ''}>
-          <CardContent className="p-5">
-            <div className="flex items-center justify-between">
-              <div className="flex items-center gap-3">
-                <div className={`p-3 rounded-xl ${currentStreak.type === 'win' ? 'bg-emerald-500/20' : currentStreak.type === 'loss' ? 'bg-red-500/20' : 'bg-gray-800'}`}>
-                  {currentStreak.type === 'win' ? (
-                    <Flame className="w-6 h-6 text-emerald-400" />
-                  ) : currentStreak.type === 'loss' ? (
-                    <TrendingDown className="w-6 h-6 text-red-400" />
-                  ) : (
-                    <Zap className="w-6 h-6 text-gray-400" />
-                  )}
-                </div>
-                <div>
-                  <h3 className="text-lg font-semibold text-white">
-                    {currentStreak.type === 'win' ? 'Sequência de Vitórias' : currentStreak.type === 'loss' ? 'Sequência de Derrotas' : 'Nenhuma Sequência'}
-                  </h3>
-                  <p className="text-sm text-gray-400">
-                    {currentStreak.count > 0 ? `${currentStreak.count} apostas consecutivas` : 'Comece a apostar para ver suas sequências'}
-                  </p>
-                </div>
-              </div>
-              <div className={`text-3xl font-bold ${currentStreak.type === 'win' ? 'text-emerald-400' : currentStreak.type === 'loss' ? 'text-red-400' : 'text-gray-500'}`}>
-                {currentStreak.count > 0 ? currentStreak.count : '-'}
+              <div>
+                <h3 className="text-lg font-semibold text-white">
+                  {currentStreak.type === 'win' ? 'Sequência de Vitórias' : currentStreak.type === 'loss' ? 'Sequência de Derrotas' : 'Nenhuma Sequência'}
+                </h3>
+                <p className="text-sm text-gray-400">
+                  {currentStreak.count > 0 ? `${currentStreak.count} apostas consecutivas` : 'Comece a apostar para ver suas sequências'}
+                </p>
               </div>
             </div>
-          </CardContent>
-        </Card>
-      </div>
+            <div className={`text-3xl font-bold ${currentStreak.type === 'win' ? 'text-emerald-400' : currentStreak.type === 'loss' ? 'text-red-400' : 'text-gray-500'}`}>
+              {currentStreak.count > 0 ? currentStreak.count : '-'}
+            </div>
+          </div>
+        </CardContent>
+      </Card>
 
       {/* Resumo Geral */}
       <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-4">
