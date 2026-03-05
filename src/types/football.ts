@@ -81,8 +81,9 @@ export type FixturesResponse = FootballAPIResponse<FootballMatch>;
 // Tipos simplificados para uso no frontend
 export interface SimpleMatch {
   id: number;
-  date: string;
-  time: string;
+  timestamp: number; // Unix timestamp em segundos (UTC)
+  date: string; // YYYY-MM-DD (mantido para compatibilidade, mas calculado no frontend)
+  time: string; // HH:mm (mantido para compatibilidade, mas calculado no frontend)
   status: string;
   statusShort: string;
   homeTeam: string;

@@ -1,9 +1,17 @@
 'use client';
 
-import { useState, useEffect } from 'react';
-import { X, Search, Calendar, Loader2, Trophy, ChevronLeft, ChevronRight, Circle, CheckCircle2, Clock } from 'lucide-react';
+import { useState, useEffect, useMemo } from 'react';
+import { X, Search, Calendar, Loader2, Trophy, ChevronLeft, ChevronRight, Circle, CheckCircle2, Clock, Globe } from 'lucide-react';
 import { MAIN_LEAGUES } from '@/types/football';
 import type { SimpleMatch } from '@/types/football';
+import {
+  getUserTimezone,
+  formatMatchDate,
+  formatMatchTime,
+  formatFriendlyDate,
+  getTimezoneOffset,
+  getTimezoneName
+} from '@/lib/timezone';
 
 type MatchStatus = 'all' | 'live' | 'finished' | 'scheduled';
 
@@ -36,6 +44,18 @@ export function MatchSelector({ isOpen, onClose, onSelect }: MatchSelectorProps)
   const [error, setError] = useState<string | null>(null);
   const [searchTerm, setSearchTerm] = useState('');
   const [rateLimit, setRateLimit] = useState<RateLimitInfo | null>(null);
+
+  // Detectar timezone do usuário
+  const userTimezone = useMemo(() => getUserTimezone(), []);
+  const timezoneOffset = useMemo(() => getTimezoneOffset(userTimezone), [userTimezone]);
+  const timezoneName = useMemo(() => getTimezoneName(userTimezone), [userTimezone]);
+
+  // Função para obter data/hora no timezone do usuário
+  const getLocalizedMatch = (match: SimpleMatch) => ({
+    ...match,
+    localDate: formatMatchDate(match.timestamp, userTimezone),
+    localTime: formatMatchTime(match.timestamp, userTimezone),
+  });
 
   // Buscar jogos quando data ou liga mudar
   useEffect(() => {
@@ -117,12 +137,14 @@ export function MatchSelector({ isOpen, onClose, onSelect }: MatchSelectorProps)
   }, {} as Record<string, SimpleMatch[]>);
 
   const handleSelectMatch = (match: SimpleMatch) => {
+    // Usa a data no timezone do usuário
+    const localDate = formatMatchDate(match.timestamp, userTimezone);
     onSelect({
       fixtureId: match.id,
       teamA: match.homeTeam,
       teamB: match.awayTeam,
       championship: match.league,
-      matchDate: match.date,
+      matchDate: localDate,
     });
     onClose();
   };
@@ -133,27 +155,12 @@ export function MatchSelector({ isOpen, onClose, onSelect }: MatchSelectorProps)
     setSelectedDate(date.toISOString().split('T')[0]);
   };
 
-  const formatDate = (dateStr: string) => {
-    const date = new Date(dateStr + 'T12:00:00');
-    const today = new Date();
-    today.setHours(12, 0, 0, 0);
-    const tomorrow = new Date(today);
-    tomorrow.setDate(tomorrow.getDate() + 1);
-    const yesterday = new Date(today);
-    yesterday.setDate(yesterday.getDate() - 1);
-
-    const dateOnly = new Date(date);
-    dateOnly.setHours(12, 0, 0, 0);
-
-    if (dateOnly.getTime() === today.getTime()) return 'Hoje';
-    if (dateOnly.getTime() === tomorrow.getTime()) return 'Amanhã';
-    if (dateOnly.getTime() === yesterday.getTime()) return 'Ontem';
-
-    return date.toLocaleDateString('pt-BR', {
-      weekday: 'short',
-      day: '2-digit',
-      month: 'short',
-    });
+  // Formata a data selecionada (string YYYY-MM-DD) de forma amigável
+  const formatSelectedDate = (dateStr: string) => {
+    // Converte string de data para timestamp às 12:00 UTC
+    const [year, month, day] = dateStr.split('-').map(Number);
+    const timestamp = Math.floor(new Date(Date.UTC(year, month - 1, day, 12, 0, 0)).getTime() / 1000);
+    return formatFriendlyDate(timestamp, userTimezone);
   };
 
   const getStatusColor = (status: string) => {
@@ -176,10 +183,10 @@ export function MatchSelector({ isOpen, onClose, onSelect }: MatchSelectorProps)
     }
   };
 
-  const getStatusText = (match: SimpleMatch) => {
+  const getStatusText = (match: SimpleMatch, localTime?: string) => {
     switch (match.statusShort) {
       case 'NS':
-        return match.time;
+        return localTime || formatMatchTime(match.timestamp, userTimezone);
       case 'HT':
         return 'Intervalo';
       case '1H':
@@ -242,7 +249,7 @@ export function MatchSelector({ isOpen, onClose, onSelect }: MatchSelectorProps)
                 className="bg-transparent text-white flex-1 focus:outline-none"
               />
               <span className="text-emerald-400 text-sm font-medium">
-                {formatDate(selectedDate)}
+                {formatSelectedDate(selectedDate)}
               </span>
             </div>
             <button
@@ -444,7 +451,7 @@ export function MatchSelector({ isOpen, onClose, onSelect }: MatchSelectorProps)
                           </div>
                           {/* Status */}
                           <div className={`text-sm ml-4 ${getStatusColor(match.statusShort)}`}>
-                            {getStatusText(match)}
+                            {getStatusText(match, formatMatchTime(match.timestamp, userTimezone))}
                           </div>
                         </div>
                       </button>
@@ -456,11 +463,12 @@ export function MatchSelector({ isOpen, onClose, onSelect }: MatchSelectorProps)
           )}
         </div>
 
-        {/* Footer com indicador de requests */}
+        {/* Footer com indicador de requests e timezone */}
         <div className="p-4 border-t border-gray-700 flex items-center justify-between">
-          <p className="text-xs text-gray-500">
-            Dados: API-Football
-          </p>
+          <div className="flex items-center gap-2 text-xs text-gray-500">
+            <Globe className="w-3 h-3" />
+            <span title={userTimezone}>{timezoneName} ({timezoneOffset})</span>
+          </div>
           {rateLimit && (
             <div className="flex items-center gap-2">
               <div className="h-1.5 w-16 bg-gray-700 rounded-full overflow-hidden">

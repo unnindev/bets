@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useState } from 'react';
+import { useEffect, useState, useMemo } from 'react';
 import { MainLayout } from '@/components/layout/MainLayout';
 import { Card, CardContent, CardHeader } from '@/components/ui/Card';
 import { createClient } from '@/lib/supabase/client';
@@ -15,6 +15,8 @@ import {
   BarChart3,
   Percent,
   Landmark,
+  Calendar,
+  Filter,
 } from 'lucide-react';
 import {
   LineChart,
@@ -29,6 +31,16 @@ import {
 } from 'recharts';
 import { useWallet } from '@/contexts/WalletContext';
 import type { Bet, CombinedBet, DashboardStats } from '@/types';
+
+type PeriodFilter = 'all' | 'week' | 'month' | '3months' | 'custom';
+
+const PERIOD_OPTIONS = [
+  { value: 'all', label: 'Todo o período' },
+  { value: 'week', label: 'Última semana' },
+  { value: 'month', label: 'Último mês' },
+  { value: '3months', label: 'Últimos 3 meses' },
+  { value: 'custom', label: 'Personalizado' },
+] as const;
 
 interface StatCardProps {
   title: string;
@@ -70,15 +82,84 @@ function DashboardContent() {
   const [combinedBets, setCombinedBets] = useState<CombinedBet[]>([]);
   const [isLoading, setIsLoading] = useState(true);
 
+  // Filtro de período
+  const [periodFilter, setPeriodFilter] = useState<PeriodFilter>('all');
+  const [customStartDate, setCustomStartDate] = useState('');
+  const [customEndDate, setCustomEndDate] = useState('');
+
   const supabase = createClient();
 
+  // Calcular datas do período selecionado
+  const getDateRange = useMemo(() => {
+    const today = new Date();
+    today.setHours(23, 59, 59, 999);
+
+    switch (periodFilter) {
+      case 'week': {
+        const weekAgo = new Date(today);
+        weekAgo.setDate(weekAgo.getDate() - 7);
+        weekAgo.setHours(0, 0, 0, 0);
+        return { start: weekAgo, end: today };
+      }
+      case 'month': {
+        const monthAgo = new Date(today);
+        monthAgo.setMonth(monthAgo.getMonth() - 1);
+        monthAgo.setHours(0, 0, 0, 0);
+        return { start: monthAgo, end: today };
+      }
+      case '3months': {
+        const threeMonthsAgo = new Date(today);
+        threeMonthsAgo.setMonth(threeMonthsAgo.getMonth() - 3);
+        threeMonthsAgo.setHours(0, 0, 0, 0);
+        return { start: threeMonthsAgo, end: today };
+      }
+      case 'custom': {
+        if (customStartDate && customEndDate) {
+          const start = new Date(customStartDate + 'T00:00:00');
+          const end = new Date(customEndDate + 'T23:59:59');
+          return { start, end };
+        }
+        return null;
+      }
+      default:
+        return null; // 'all' - sem filtro
+    }
+  }, [periodFilter, customStartDate, customEndDate]);
+
+  // Filtrar apostas pelo período
+  const filteredBets = useMemo(() => {
+    if (!getDateRange) return bets;
+
+    return bets.filter((bet) => {
+      const betDate = new Date(bet.match_date + 'T12:00:00');
+      return betDate >= getDateRange.start && betDate <= getDateRange.end;
+    });
+  }, [bets, getDateRange]);
+
+  const filteredCombinedBets = useMemo(() => {
+    if (!getDateRange) return combinedBets;
+
+    return combinedBets.filter((bet) => {
+      const betDate = new Date(bet.match_date + 'T12:00:00');
+      return betDate >= getDateRange.start && betDate <= getDateRange.end;
+    });
+  }, [combinedBets, getDateRange]);
+
+  // Carregar dados do banco
   useEffect(() => {
     if (selectedWalletId) {
-      loadStats();
+      loadData();
     }
   }, [selectedWalletId]);
 
-  const loadStats = async () => {
+  // Recalcular estatísticas quando filtro ou dados mudarem
+  useEffect(() => {
+    if (bets.length > 0 || combinedBets.length > 0 || selectedWallet) {
+      calculateStats();
+    }
+  }, [filteredBets, filteredCombinedBets, selectedWallet]);
+
+  const loadData = async () => {
     if (!selectedWalletId) return;
 
     setIsLoading(true);
@@ -103,9 +184,13 @@ function DashboardContent() {
     if (betsData) setBets(betsData);
     if (combinedData) setCombinedBets(combinedData);
 
-    // Calcular estatísticas
-    const allBetsData = betsData || [];
-    const allCombinedData = combinedData || [];
+    setIsLoading(false);
+  };
+
+  const calculateStats = () => {
+    // Usar apostas filtradas
+    const allBetsData = filteredBets;
+    const allCombinedData = filteredCombinedBets;
 
     // Contar totais
     const totalBets = allBetsData.length + allCombinedData.length;
@@ -141,11 +226,17 @@ function DashboardContent() {
     const totalProfit = totalReturn - totalAmountBetFinished;
     const roi = totalAmountBetFinished > 0 ? (totalProfit / totalAmountBetFinished) * 100 : 0;
 
-    // ROI sobre capital inicial (quanto o dinheiro inicial cresceu)
+    // ROI sobre capital - para período filtrado, calcular com base nas apostas do período
     const initialBalance = selectedWallet ? Number(selectedWallet.initial_balance) : 0;
     const currentBalance = selectedWallet ? Number(selectedWallet.balance) : 0;
-    const capitalProfit = currentBalance - initialBalance;
-    const roiCapital = initialBalance > 0 ? (capitalProfit / initialBalance) * 100 : 0;
+
+    // Se está filtrando por período, o ROI de capital é baseado no lucro do período
+    const capitalProfit = periodFilter === 'all'
+      ? currentBalance - initialBalance
+      : totalProfit;
+    const roiCapital = periodFilter === 'all'
+      ? (initialBalance > 0 ? (capitalProfit / initialBalance) * 100 : 0)
+      : (totalAmountBetFinished > 0 ? (totalProfit / totalAmountBetFinished) * 100 : 0);
 
     setStats({
       total_bets: totalBets,
@@ -162,20 +253,19 @@ function DashboardContent() {
       roi: isNaN(roi) ? 0 : roi,
       roi_capital: isNaN(roiCapital) ? 0 : roiCapital,
     });
-
-    setIsLoading(false);
   };
 
-  // Dados para o gráfico de evolução do saldo
+  // Dados para o gráfico de evolução do saldo (usando apostas filtradas)
   const getBalanceChartData = () => {
-    if (!bets.length && !combinedBets.length) return [];
+    if (!filteredBets.length && !filteredCombinedBets.length) return [];
 
     const allBets = [
-      ...bets.map((b) => ({ ...b, type: 'simple' as const })),
-      ...combinedBets.map((b) => ({ ...b, type: 'combined' as const })),
-    ].sort((a, b) => new Date(a.match_date).getTime() - new Date(b.match_date).getTime());
+      ...filteredBets.map((b) => ({ ...b, type: 'simple' as const })),
+      ...filteredCombinedBets.map((b) => ({ ...b, type: 'combined' as const })),
+    ].sort((a, b) => new Date(a.match_date + 'T12:00:00').getTime() - new Date(b.match_date + 'T12:00:00').getTime());
 
-    let runningBalance = stats?.total_deposited || 0;
+    // Se está filtrando, começar do zero para mostrar evolução do período
+    let runningBalance = periodFilter === 'all' ? (stats?.total_deposited || 0) : 0;
     const data: { date: string; balance: number }[] = [];
 
     allBets.forEach((bet) => {
@@ -186,10 +276,8 @@ function DashboardContent() {
         runningBalance += Number(bet.return_amount);
       }
 
-      const dateStr = new Date(bet.match_date).toLocaleDateString('pt-BR', {
-        day: '2-digit',
-        month: '2-digit',
-      });
+      const [year, month, day] = bet.match_date.split('-');
+      const dateStr = `${day}/${month}`;
 
       const existingEntry = data.find((d) => d.date === dateStr);
       if (existingEntry) {
@@ -202,45 +290,43 @@ function DashboardContent() {
     return data;
   };
 
-  // Dados para o gráfico de resultados por mês
+  // Dados para o gráfico de resultados por mês (usando apostas filtradas)
   const getMonthlyChartData = () => {
     const monthlyData: Record<string, { wins: number; losses: number }> = {};
 
-    bets.forEach((bet) => {
+    filteredBets.forEach((bet) => {
       if (bet.result === 'pending') return;
 
-      const month = new Date(bet.match_date).toLocaleDateString('pt-BR', {
-        month: 'short',
-        year: '2-digit',
-      });
+      const [year, month] = bet.match_date.split('-');
+      const monthNames = ['jan', 'fev', 'mar', 'abr', 'mai', 'jun', 'jul', 'ago', 'set', 'out', 'nov', 'dez'];
+      const monthKey = `${monthNames[parseInt(month) - 1]}/${year.slice(2)}`;
 
-      if (!monthlyData[month]) {
-        monthlyData[month] = { wins: 0, losses: 0 };
+      if (!monthlyData[monthKey]) {
+        monthlyData[monthKey] = { wins: 0, losses: 0 };
       }
 
       if (bet.result === 'win' || bet.result === 'cashout') {
-        monthlyData[month].wins += 1;
+        monthlyData[monthKey].wins += 1;
       } else {
-        monthlyData[month].losses += 1;
+        monthlyData[monthKey].losses += 1;
       }
     });
 
-    combinedBets.forEach((bet) => {
+    filteredCombinedBets.forEach((bet) => {
       if (bet.result === 'pending') return;
 
-      const month = new Date(bet.match_date).toLocaleDateString('pt-BR', {
-        month: 'short',
-        year: '2-digit',
-      });
+      const [year, month] = bet.match_date.split('-');
+      const monthNames = ['jan', 'fev', 'mar', 'abr', 'mai', 'jun', 'jul', 'ago', 'set', 'out', 'nov', 'dez'];
+      const monthKey = `${monthNames[parseInt(month) - 1]}/${year.slice(2)}`;
 
-      if (!monthlyData[month]) {
-        monthlyData[month] = { wins: 0, losses: 0 };
+      if (!monthlyData[monthKey]) {
+        monthlyData[monthKey] = { wins: 0, losses: 0 };
       }
 
       if (bet.result === 'win' || bet.result === 'cashout') {
-        monthlyData[month].wins += 1;
+        monthlyData[monthKey].wins += 1;
       } else {
-        monthlyData[month].losses += 1;
+        monthlyData[monthKey].losses += 1;
       }
     });
 
@@ -271,8 +357,86 @@ function DashboardContent() {
     );
   }
 
+  // Formatar data para exibição
+  const formatDateDisplay = (dateStr: string) => {
+    const [year, month, day] = dateStr.split('-');
+    return `${day}/${month}/${year}`;
+  };
+
+  // Texto do período atual
+  const getPeriodLabel = () => {
+    if (periodFilter === 'all') return 'Todo o período';
+    if (periodFilter === 'custom' && customStartDate && customEndDate) {
+      return `${formatDateDisplay(customStartDate)} a ${formatDateDisplay(customEndDate)}`;
+    }
+    const option = PERIOD_OPTIONS.find((o) => o.value === periodFilter);
+    return option?.label || '';
+  };
+
   return (
     <>
+      {/* Filtro de Período */}
+      <Card>
+        <CardContent className="p-4">
+          <div className="flex flex-col sm:flex-row items-start sm:items-center gap-4">
+            <div className="flex items-center gap-2 text-gray-400">
+              <Filter className="w-4 h-4" />
+              <span className="text-sm font-medium">Período:</span>
+            </div>
+
+            <div className="flex flex-wrap items-center gap-2">
+              {PERIOD_OPTIONS.map((option) => (
+                <button
+                  key={option.value}
+                  onClick={() => setPeriodFilter(option.value as PeriodFilter)}
+                  className={`px-3 py-1.5 rounded-lg text-sm transition ${
+                    periodFilter === option.value
+                      ? 'bg-emerald-500 text-white'
+                      : 'bg-gray-800 text-gray-400 hover:text-white hover:bg-gray-700'
+                  }`}
+                >
+                  {option.label}
+                </button>
+              ))}
+            </div>
+
+            {/* Campos de data personalizada */}
+            {periodFilter === 'custom' && (
+              <div className="flex items-center gap-2 ml-0 sm:ml-auto">
+                <div className="flex items-center gap-2">
+                  <Calendar className="w-4 h-4 text-gray-400" />
+                  <input
+                    type="date"
+                    value={customStartDate}
+                    onChange={(e) => setCustomStartDate(e.target.value)}
+                    className="bg-gray-800 border border-gray-700 rounded-lg px-3 py-1.5 text-white text-sm focus:outline-none focus:ring-2 focus:ring-emerald-500"
+                  />
+                </div>
+                <span className="text-gray-500">até</span>
+                <input
+                  type="date"
+                  value={customEndDate}
+                  onChange={(e) => setCustomEndDate(e.target.value)}
+                  className="bg-gray-800 border border-gray-700 rounded-lg px-3 py-1.5 text-white text-sm focus:outline-none focus:ring-2 focus:ring-emerald-500"
+                />
+              </div>
+            )}
+          </div>
+
+          {/* Indicador do período ativo */}
+          {periodFilter !== 'all' && (
+            <div className="mt-3 pt-3 border-t border-gray-800 flex items-center justify-between">
+              <p className="text-sm text-gray-400">
+                Mostrando dados de: <span className="text-emerald-400 font-medium">{getPeriodLabel()}</span>
+              </p>
+              <p className="text-xs text-gray-500">
+                {filteredBets.length + filteredCombinedBets.length} apostas no período
+              </p>
+            </div>
+          )}
+        </CardContent>
+      </Card>
+
       {isLoading ? (
         <div className="flex items-center justify-center h-64">
           <div className="animate-spin rounded-full h-8 w-8 border-t-2 border-b-2 border-emerald-500"></div>
@@ -472,11 +636,11 @@ function DashboardContent() {
               <CardContent className="p-5 text-center">
                 <p className="text-gray-400 text-sm mb-1">Odd Média</p>
                 <p className="text-xl font-bold text-white">
-                  {(bets.length + combinedBets.length) > 0
+                  {(filteredBets.length + filteredCombinedBets.length) > 0
                     ? (
-                        (bets.reduce((sum, b) => sum + Number(b.odds), 0) +
-                          combinedBets.reduce((sum, b) => sum + Number(b.odds), 0)) /
-                        (bets.length + combinedBets.length)
+                        (filteredBets.reduce((sum, b) => sum + Number(b.odds), 0) +
+                          filteredCombinedBets.reduce((sum, b) => sum + Number(b.odds), 0)) /
+                        (filteredBets.length + filteredCombinedBets.length)
                       ).toFixed(2)
                     : '0.00'}
                 </p>

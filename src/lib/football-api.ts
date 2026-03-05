@@ -116,13 +116,20 @@ export async function getFixtureById(fixtureId: number): Promise<FootballMatch |
 }
 
 // Converter para formato simplificado
+// NOTA: timestamp é UTC em segundos. date/time são calculados no frontend com base no timezone do usuário
 export function toSimpleMatch(match: FootballMatch): SimpleMatch {
-  const date = new Date(match.fixture.date);
+  // Usa o timestamp Unix da API (já é UTC)
+  const timestamp = match.fixture.timestamp;
+
+  // Para compatibilidade, mantemos date/time mas agora são calculados em UTC
+  // O frontend deve recalcular usando o timezone do usuário
+  const date = new Date(timestamp * 1000);
 
   return {
     id: match.fixture.id,
-    date: date.toISOString().split('T')[0],
-    time: date.toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' }),
+    timestamp, // Unix timestamp em segundos (UTC)
+    date: date.toISOString().split('T')[0], // UTC date (frontend recalcula)
+    time: date.toISOString().split('T')[1].slice(0, 5), // UTC time (frontend recalcula)
     status: match.fixture.status.long,
     statusShort: match.fixture.status.short,
     homeTeam: match.teams.home.name,
