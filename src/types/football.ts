@@ -124,20 +124,18 @@ export interface MatchWithStats extends SimpleMatch {
   awayForm?: TeamForm;
 }
 
-// Ligas principais para filtro rápido
+// Ligas principais para filtro rápido (IDs da Football-Data.org)
 export const MAIN_LEAGUES = [
-  { id: 71, name: 'Brasileirão Série A', country: 'Brazil' },
-  { id: 72, name: 'Brasileirão Série B', country: 'Brazil' },
-  { id: 73, name: 'Copa do Brasil', country: 'Brazil' },
-  { id: 39, name: 'Premier League', country: 'England' },
-  { id: 140, name: 'La Liga', country: 'Spain' },
-  { id: 135, name: 'Serie A', country: 'Italy' },
-  { id: 78, name: 'Bundesliga', country: 'Germany' },
-  { id: 61, name: 'Ligue 1', country: 'France' },
-  { id: 2, name: 'Champions League', country: 'World' },
-  { id: 3, name: 'Europa League', country: 'World' },
-  { id: 13, name: 'Libertadores', country: 'World' },
-  { id: 11, name: 'Copa Sudamericana', country: 'World' },
+  { id: 2013, name: 'Brasileirão Série A', country: 'Brazil' },
+  { id: 2021, name: 'Premier League', country: 'England' },
+  { id: 2014, name: 'La Liga', country: 'Spain' },
+  { id: 2019, name: 'Serie A', country: 'Italy' },
+  { id: 2002, name: 'Bundesliga', country: 'Germany' },
+  { id: 2015, name: 'Ligue 1', country: 'France' },
+  { id: 2001, name: 'Champions League', country: 'Europe' },
+  { id: 2003, name: 'Eredivisie', country: 'Netherlands' },
+  { id: 2017, name: 'Primeira Liga', country: 'Portugal' },
+  { id: 2016, name: 'Championship', country: 'England' },
 ] as const;
 
 export type MainLeagueId = typeof MAIN_LEAGUES[number]['id'];

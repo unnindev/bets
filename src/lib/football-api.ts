@@ -1,12 +1,12 @@
-import type { FootballAPIResponse, FootballMatch, SimpleMatch, TeamForm } from '@/types/football';
+import type { FootballMatch, SimpleMatch, TeamForm } from '@/types/football';
 
 // Cache em memória com TTL
 const cache = new Map<string, { data: unknown; timestamp: number }>();
 
-// Rate limit info (atualizado a cada request real)
+// Rate limit info
 let rateLimitInfo = {
-  requestsRemaining: 100,
-  requestsLimit: 100,
+  requestsRemaining: 10,
+  requestsLimit: 10,
   lastUpdated: 0,
 };
 
@@ -18,7 +18,7 @@ interface CacheOptions {
   ttl?: number;
 }
 
-// Limpar cache antigo se tiver muitos itens
+// Limpar cache antigo
 function cleanOldCache(): void {
   if (cache.size > 100) {
     const now = Date.now();
@@ -30,20 +30,138 @@ function cleanOldCache(): void {
   }
 }
 
-export async function fetchFootballAPI<T>(
+// Interface da resposta da Football-Data.org
+interface FootballDataMatch {
+  id: number;
+  utcDate: string;
+  status: 'SCHEDULED' | 'TIMED' | 'IN_PLAY' | 'PAUSED' | 'FINISHED' | 'SUSPENDED' | 'POSTPONED' | 'CANCELLED' | 'AWARDED';
+  matchday: number;
+  stage: string;
+  homeTeam: {
+    id: number;
+    name: string;
+    shortName: string;
+    tla: string;
+    crest: string;
+  };
+  awayTeam: {
+    id: number;
+    name: string;
+    shortName: string;
+    tla: string;
+    crest: string;
+  };
+  score: {
+    winner: string | null;
+    fullTime: { home: number | null; away: number | null };
+    halfTime: { home: number | null; away: number | null };
+  };
+  competition: {
+    id: number;
+    name: string;
+    code: string;
+    emblem: string;
+  };
+  area: {
+    name: string;
+    flag: string;
+  };
+}
+
+interface FootballDataResponse {
+  matches: FootballDataMatch[];
+  resultSet?: {
+    count: number;
+  };
+}
+
+// Mapear status da Football-Data.org para o formato anterior
+function mapStatus(status: string): { long: string; short: string } {
+  const statusMap: Record<string, { long: string; short: string }> = {
+    'SCHEDULED': { long: 'Not Started', short: 'NS' },
+    'TIMED': { long: 'Not Started', short: 'NS' },
+    'IN_PLAY': { long: 'In Play', short: 'LIVE' },
+    'PAUSED': { long: 'Half Time', short: 'HT' },
+    'FINISHED': { long: 'Match Finished', short: 'FT' },
+    'SUSPENDED': { long: 'Suspended', short: 'SUSP' },
+    'POSTPONED': { long: 'Postponed', short: 'PST' },
+    'CANCELLED': { long: 'Cancelled', short: 'CANC' },
+    'AWARDED': { long: 'Awarded', short: 'AWD' },
+  };
+  return statusMap[status] || { long: status, short: status };
+}
+
+// Converter resposta da Football-Data.org para o formato FootballMatch
+function convertToFootballMatch(match: FootballDataMatch): FootballMatch {
+  const statusInfo = mapStatus(match.status);
+  const utcDate = new Date(match.utcDate);
+
+  return {
+    fixture: {
+      id: match.id,
+      referee: null,
+      timezone: 'UTC',
+      date: match.utcDate,
+      timestamp: Math.floor(utcDate.getTime() / 1000),
+      periods: { first: null, second: null },
+      venue: { id: null, name: null, city: null },
+      status: {
+        long: statusInfo.long,
+        short: statusInfo.short as FootballMatch['fixture']['status']['short'],
+        elapsed: null,
+      },
+    },
+    league: {
+      id: match.competition.id,
+      name: match.competition.name,
+      country: match.area.name,
+      logo: match.competition.emblem,
+      flag: match.area.flag,
+      season: new Date().getFullYear(),
+      round: match.stage,
+    },
+    teams: {
+      home: {
+        id: match.homeTeam.id,
+        name: match.homeTeam.name,
+        logo: match.homeTeam.crest,
+        winner: match.score.winner === 'HOME_TEAM',
+      },
+      away: {
+        id: match.awayTeam.id,
+        name: match.awayTeam.name,
+        logo: match.awayTeam.crest,
+        winner: match.score.winner === 'AWAY_TEAM',
+      },
+    },
+    goals: {
+      home: match.score.fullTime.home,
+      away: match.score.fullTime.away,
+    },
+    score: {
+      halftime: match.score.halfTime,
+      fulltime: match.score.fullTime,
+      extratime: { home: null, away: null },
+      penalty: { home: null, away: null },
+    },
+  };
+}
+
+// Função genérica para fazer requisições à API
+async function fetchFootballDataAPI<T>(
   endpoint: string,
   options?: CacheOptions
-): Promise<FootballAPIResponse<T>> {
+): Promise<T> {
   const cacheKey = `football:${endpoint}`;
   const ttl = options?.ttl || CACHE_TTL_FIXTURES;
 
   // Verificar cache
   const cached = cache.get(cacheKey);
   if (cached && Date.now() - cached.timestamp < ttl) {
-    return cached.data as FootballAPIResponse<T>;
+    return cached.data as T;
   }
 
-  const baseUrl = process.env.FOOTBALL_API_BASE_URL || 'https://v3.football.api-sports.io';
+  const baseUrl = process.env.FOOTBALL_API_BASE_URL || 'https://api.football-data.org/v4';
   const apiKey = process.env.FOOTBALL_API_KEY;
 
   if (!apiKey) {
@@ -52,84 +170,86 @@ export async function fetchFootballAPI<T>(
 
   const response = await fetch(`${baseUrl}${endpoint}`, {
     headers: {
-      'x-apisports-key': apiKey,
+      'X-Auth-Token': apiKey,
     },
     next: {
-      revalidate: ttl / 1000, // Next.js cache em segundos
+      revalidate: ttl / 1000,
     },
   });
 
-  if (!response.ok) {
-    throw new Error(`API Football error: ${response.status} ${response.statusText}`);
-  }
-
-  // Capturar informações de rate limit dos headers
-  const remaining = response.headers.get('x-ratelimit-requests-remaining');
-  const limit = response.headers.get('x-ratelimit-requests-limit');
-  if (remaining !== null && limit !== null) {
+  // Capturar rate limit dos headers
+  const remaining = response.headers.get('x-requests-available-minute');
+  if (remaining !== null) {
     rateLimitInfo = {
       requestsRemaining: parseInt(remaining, 10),
-      requestsLimit: parseInt(limit, 10),
+      requestsLimit: 10,
       lastUpdated: Date.now(),
     };
   }
 
-  const data = await response.json() as FootballAPIResponse<T>;
-
-  // Verificar erros da API
-  if (data.errors && Object.keys(data.errors).length > 0) {
-    const errorMsg = Array.isArray(data.errors)
-      ? data.errors.join(', ')
-      : Object.values(data.errors).join(', ');
-    throw new Error(`API Football error: ${errorMsg}`);
+  if (!response.ok) {
+    const errorText = await response.text();
+    throw new Error(`API Football-Data error: ${response.status} - ${errorText}`);
   }
+
+  const data = await response.json() as T;
 
   // Salvar no cache
   cache.set(cacheKey, { data, timestamp: Date.now() });
+  cleanOldCache();
 
   return data;
 }
 
 // Buscar jogos por data
 export async function getFixturesByDate(date: string, leagueId?: number): Promise<FootballMatch[]> {
-  let endpoint = `/fixtures?date=${date}`;
+  let endpoint = `/matches?date=${date}`;
+
+  // Football-Data.org usa códigos de competição diferentes
+  // Para filtrar por liga específica, usar competitions endpoint
   if (leagueId) {
-    endpoint += `&league=${leagueId}`;
+    endpoint = `/competitions/${leagueId}/matches?date=${date}`;
   }
 
-  const response = await fetchFootballAPI<FootballMatch>(endpoint);
-  return response.response;
+  const response = await fetchFootballDataAPI<FootballDataResponse>(endpoint);
+  return (response.matches || []).map(convertToFootballMatch);
 }
 
 // Buscar jogos ao vivo
 export async function getLiveFixtures(): Promise<FootballMatch[]> {
-  const response = await fetchFootballAPI<FootballMatch>('/fixtures?live=all', {
-    ttl: 60 * 1000, // 1 minuto para jogos ao vivo
-  });
-  return response.response;
+  // Football-Data.org não tem endpoint específico para live
+  // Buscar jogos de hoje e filtrar os que estão em andamento
+  const today = new Date().toISOString().split('T')[0];
+  const response = await fetchFootballDataAPI<FootballDataResponse>(
+    `/matches?date=${today}`,
+    { ttl: 60 * 1000 } // 1 minuto para jogos ao vivo
+  );
+
+  return (response.matches || [])
+    .filter(m => m.status === 'IN_PLAY' || m.status === 'PAUSED')
+    .map(convertToFootballMatch);
 }
 
 // Buscar jogo específico por ID
 export async function getFixtureById(fixtureId: number): Promise<FootballMatch | null> {
-  const response = await fetchFootballAPI<FootballMatch>(`/fixtures?id=${fixtureId}`);
-  return response.response[0] || null;
+  try {
+    const response = await fetchFootballDataAPI<FootballDataMatch>(`/matches/${fixtureId}`);
+    return convertToFootballMatch(response);
+  } catch {
+    return null;
+  }
 }
 
 // Converter para formato simplificado
-// NOTA: timestamp é UTC em segundos. date/time são calculados no frontend com base no timezone do usuário
 export function toSimpleMatch(match: FootballMatch): SimpleMatch {
-  // Usa o timestamp Unix da API (já é UTC)
   const timestamp = match.fixture.timestamp;
-
-  // Para compatibilidade, mantemos date/time mas agora são calculados em UTC
-  // O frontend deve recalcular usando o timezone do usuário
   const date = new Date(timestamp * 1000);
 
   return {
     id: match.fixture.id,
-    timestamp, // Unix timestamp em segundos (UTC)
-    date: date.toISOString().split('T')[0], // UTC date (frontend recalcula)
-    time: date.toISOString().split('T')[1].slice(0, 5), // UTC time (frontend recalcula)
+    timestamp,
+    date: date.toISOString().split('T')[0],
+    time: date.toISOString().split('T')[1].slice(0, 5),
     status: match.fixture.status.long,
     statusShort: match.fixture.status.short,
     homeTeam: match.teams.home.name,
@@ -165,7 +285,7 @@ export function isMatchScheduled(match: FootballMatch): boolean {
   return scheduledStatuses.includes(match.fixture.status.short);
 }
 
-// Limpar todo o cache (útil para testes)
+// Limpar todo o cache
 export function clearCache(): void {
   cache.clear();
 }
@@ -183,42 +303,34 @@ export function getRateLimitInfo() {
   return rateLimitInfo;
 }
 
-// Calcular a temporada atual de futebol
-// Europa: agosto-maio (season = ano de início)
-// Brasil: março-dezembro (season = ano)
+// Calcular a temporada atual
 function getCurrentSeason(): number {
   const now = new Date();
-  const month = now.getMonth(); // 0-11
+  const month = now.getMonth();
   const year = now.getFullYear();
-
-  // Se estamos entre janeiro e julho, a temporada europeia é do ano anterior
-  // Se estamos entre agosto e dezembro, a temporada é do ano atual
   if (month < 7) {
-    return year - 1; // Ex: fevereiro 2026 → season 2025 (2025/2026)
+    return year - 1;
   }
-  return year; // Ex: setembro 2025 → season 2025 (2025/2026)
+  return year;
 }
 
 // Buscar últimos jogos de um time
-// Nota: O plano gratuito requer o parâmetro 'season'
 export async function getTeamLastMatches(teamId: number, last: number = 5): Promise<FootballMatch[]> {
-  const season = getCurrentSeason();
+  try {
+    const response = await fetchFootballDataAPI<FootballDataResponse>(
+      `/teams/${teamId}/matches?status=FINISHED&limit=${last}`,
+      { ttl: CACHE_TTL_STATIC }
+    );
 
-  const response = await fetchFootballAPI<FootballMatch>(
-    `/fixtures?team=${teamId}&season=${season}`,
-    { ttl: CACHE_TTL_STATIC }
-  );
-
-  // Filtrar apenas jogos finalizados e ordenar por data (mais recente primeiro)
-  const finishedMatches = response.response
-    .filter((m) => ['FT', 'AET', 'PEN'].includes(m.fixture.status.short))
-    .sort((a, b) => new Date(b.fixture.date).getTime() - new Date(a.fixture.date).getTime());
-
-  // Retornar apenas os últimos N jogos
-  return finishedMatches.slice(0, last);
+    return (response.matches || [])
+      .map(convertToFootballMatch)
+      .slice(0, last);
+  } catch {
+    return [];
+  }
 }
 
-// Calcular forma recente de um time baseado nos últimos jogos
+// Calcular forma recente de um time
 export function calculateTeamForm(teamId: number, teamName: string, matches: FootballMatch[]): TeamForm {
   const form: ('W' | 'D' | 'L')[] = [];
   const lastMatches: TeamForm['lastMatches'] = [];
@@ -269,43 +381,30 @@ export function calculateTeamForm(teamId: number, teamName: string, matches: Foo
   };
 }
 
-// Buscar forma de um time (últimos N jogos)
+// Buscar forma de um time
 export async function getTeamForm(teamId: number, teamName: string, last: number = 5): Promise<TeamForm> {
   const matches = await getTeamLastMatches(teamId, last);
   return calculateTeamForm(teamId, teamName, matches);
 }
 
 // Buscar confrontos diretos entre dois times
-// Nota: O plano gratuito não suporta 'last', usamos as últimas 2 temporadas
 export async function getHeadToHead(teamId1: number, teamId2: number, last: number = 5): Promise<FootballMatch[]> {
-  const currentSeason = getCurrentSeason();
+  try {
+    const response = await fetchFootballDataAPI<FootballDataResponse>(
+      `/teams/${teamId1}/matches?status=FINISHED&limit=50`,
+      { ttl: CACHE_TTL_STATIC }
+    );
 
-  // Buscar da temporada atual
-  const response = await fetchFootballAPI<FootballMatch>(
-    `/fixtures/headtohead?h2h=${teamId1}-${teamId2}&season=${currentSeason}`,
-    { ttl: CACHE_TTL_STATIC }
-  );
+    // Filtrar apenas jogos contra o outro time
+    const h2hMatches = (response.matches || [])
+      .filter(m => m.homeTeam.id === teamId2 || m.awayTeam.id === teamId2)
+      .slice(0, last)
+      .map(convertToFootballMatch);
 
-  let matches = response.response;
-
-  // Se não tiver jogos suficientes, buscar temporada anterior também
-  if (matches.length < last) {
-    try {
-      const prevResponse = await fetchFootballAPI<FootballMatch>(
-        `/fixtures/headtohead?h2h=${teamId1}-${teamId2}&season=${currentSeason - 1}`,
-        { ttl: CACHE_TTL_STATIC }
-      );
-      matches = [...matches, ...prevResponse.response];
-    } catch {
-      // Ignorar erro da temporada anterior
-    }
+    return h2hMatches;
+  } catch {
+    return [];
   }
-
-  // Filtrar apenas jogos finalizados, ordenar por data e limitar
-  return matches
-    .filter((m) => ['FT', 'AET', 'PEN'].includes(m.fixture.status.short))
-    .sort((a, b) => new Date(b.fixture.date).getTime() - new Date(a.fixture.date).getTime())
-    .slice(0, last);
 }
 
 // Análise de confrontos diretos

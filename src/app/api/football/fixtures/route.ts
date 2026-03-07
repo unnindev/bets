@@ -26,12 +26,8 @@ export async function GET(request: Request) {
     // Converter para formato simplificado
     const simpleMatches = matches.map(toSimpleMatch);
 
-    // Ordenar por horário
-    simpleMatches.sort((a, b) => {
-      const dateA = new Date(`${a.date}T${a.time}`);
-      const dateB = new Date(`${b.date}T${b.time}`);
-      return dateA.getTime() - dateB.getTime();
-    });
+    // Ordenar por horário usando timestamp UTC
+    simpleMatches.sort((a, b) => a.timestamp - b.timestamp);
 
     return NextResponse.json({
       success: true,
